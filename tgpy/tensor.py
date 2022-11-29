@@ -170,7 +170,7 @@ def robust_cholesky(matrix, upper=False, out=None, jitter=None):
     except RuntimeError:
         _robust_zero(matrix)
         matrix_max = matrix.diagonal(dim1=1, dim2=2).mean(dim=1)[:, None, None]
-        matrix.div_(matrix_max)
+        matrix = matrix/matrix_max
         jitter = jitter if jitter else 1e-6 if matrix.dtype == torch.float32 else 1e-8
         jitter_ori = jitter
         for i in range(5):
