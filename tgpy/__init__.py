@@ -8,3 +8,4 @@ from .learning import *
 from .location import *
 from .mapping import *
 from .random import *
+from .cdf import *
