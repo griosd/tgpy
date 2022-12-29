@@ -131,21 +131,21 @@ class Norm2Transport(TgTransport):
 
     def forward(self, t, x, noise=None):
         normx = x.norm(dim=-2)
-        return self.norm_y(normx, n=t.shape[0])*x/normx
+        return self.norm_y(normx, n=t.shape[0]) * x / normx
 
     def inverse(self, t, y, noise=None):
         normy = y.norm(dim=-2)[:, :, None]
-        scale = self.norm_x(normy, n=t.shape[0])/normy
-        return scale*y
+        scale = self.norm_x(normy, n=t.shape[0]) / normy
+        return scale * y
 
     def posterior_norm_y(self, norm_x, n=None, n_obs=None, norm_y_obs=None):
         return self.obj.posterior_Q(self.ref.F(norm_x, n), n, n_obs, norm_y_obs)
 
-    def posterior(self, t, x, obs_t, obs_y, generator=None, noise=False):
+    def posterior(self, t, x, obs_t, obs_y, generator=None, noise=False, *args, **kwargs):
         normx = x.norm(dim=-2)
         normy_obs = obs_y.norm(dim=-2)
         post_normy = self.posterior_norm_y(normx, n=t.shape[0], n_obs=obs_t.shape[0], norm_y_obs=normy_obs)
-        return post_normy*x/normx
+        return post_normy * x / normx
 
     def logdetgradinv(self, t, y, sy=None, eps=1e-4):
         normy = y.norm(dim=-2)[:, :, None]

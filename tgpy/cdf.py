@@ -4,29 +4,36 @@ from .tensor import one, eps4, two, zero
 from torch.special import gammainc
 from .tensor import gammaincinv, betainc, betaincinv
 
+
 class CDF(nn.Module):
     def __init__(self, *args, **kwargs):
         super(CDF, self).__init__(*args, **kwargs)
 
-    def F(self, x, n=None):
+    @staticmethod
+    def F(x, n=None):
         pass
 
-    def Q(self, y, n=None):
+    @staticmethod
+    def Q(y, n=None):
         pass
+
 
 class FisherSnedecor(nn.Module):
     def __init__(self, *args, **kwargs):
         super(CDF, self).__init__(*args, **kwargs)
 
-    def F(self, x, n, v):
+    @staticmethod
+    def F(x, n, v):
         dx1 = (n * x) / (n * x + v)
         y = betainc(n / 2, v / 2, dx1)
         return y
 
-    def Q(self, y, n, v):
+    @staticmethod
+    def Q(y, n, v):
         dx1 = betaincinv(n / 2, v / 2, y)
         x = v * dx1 / (n - n * dx1)
         return x
+
 
 class NormGaussian(CDF):
     """2-Norm of a Gaussian based on Chi"""
@@ -50,7 +57,7 @@ class NormStudentT(CDF):
 
     @property
     def _v(self):
-        return self.v + 2.0
+        return torch.as_tensor(self.v + 2.0, dtype=torch.float32, device='cuda')
 
     def F(self, x, n=1):
         n = torch.as_tensor(n, dtype=x.dtype, device=x.device)

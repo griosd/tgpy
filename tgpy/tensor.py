@@ -232,7 +232,7 @@ class TorchBetainc(Function):
     @staticmethod
     def forward(ctx, a, b, x):
         ctx.save_for_backward(a, b, x)
-        return torch.as_tensor(special.betainc(numpy(a), numpy(b), numpy(x)), device=x.device, dtype=x.dtype)
+        return torch.as_tensor(special.betainc(to_numpy(a), to_numpy(b), to_numpy(x)), device=x.device, dtype=x.dtype)
 
     @staticmethod
     def backward(ctx, grad_output, eps=1e-4):
@@ -255,7 +255,7 @@ class TorchBetaincinv(Function):
     @staticmethod
     def forward(ctx, a, b, y):
         ctx.save_for_backward(a, b, y)
-        return torch.as_tensor(special.betaincinv(numpy(a), numpy(b), numpy(y)), device=y.device, dtype=y.dtype)
+        return torch.as_tensor(special.betaincinv(to_numpy(a), to_numpy(b), to_numpy(y)), device=y.device, dtype=y.dtype)
 
     @staticmethod
     def backward(ctx, grad_output, eps=1e-4):

@@ -171,6 +171,7 @@ class TgLearning:
                 self.tgp.clamp()
             self.append()
             if t % update_loss == 0:
+                self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
                 logp = self.tgp.logp()
                 logp_median = logp.median().item()
                 logp_std = (logp - logp_median).abs().median().item()
@@ -194,7 +195,7 @@ class TgLearning:
         d = (params[:, None, :] - params[None, :, :]) / sigma
         dists = d.pow(2).sum(axis=-1)
         h = 0.5 * dists.median().item() / log(n_samples + 1)
-        h = h if h > 1e-6 else 1e-6
+        h = h if h > 1e-3 else 1e-3
         k = torch.exp(- dists / (2 * h))
         k_der = d * k[:, :, None] / (sigma * h)
 
