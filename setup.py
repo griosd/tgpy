@@ -13,5 +13,5 @@ setup(name='tgpy',
       author_email='gonzalo@riosycia.cl',
       packages=find_packages(),
       install_requires=['numpy', 'scipy', 'matplotlib', 'seaborn', 'torch', 'dill', 'tqdm',
-                        'seaborn', 'mpl-scatter-density'],
+                        'seaborn', 'mpl-scatter-density', 'utm', 'pydeck'],
       zip_safe=False)
