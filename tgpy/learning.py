@@ -121,8 +121,8 @@ class TgLearning:
             logp = self.tgp.logp(index=self.index_batch)
             logp_nan = torch.isfinite(logp)
             loss = -logp[logp_nan].sum()
-            self.optimizer.zero_grad()
-            loss.backward()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward(retain_graph=True)
             with no_grad:
                 x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
                                  for p in self.parameters_list], dim=1)
@@ -130,25 +130,23 @@ class TgLearning:
                                      for p in self.parameters_list], dim=1)
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
-                d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=0)
                 if self.rand_pert:
-                    for name, prior in self.priors_dict.items():
-                        for n, dist in prior.d.items():
-                            prior.p[n].data += (dist.high - dist.low) * torch.randn(prior.p[n].data.shape,
-                                                                                    device=d.device) * self.rand_pert
-                    #d = d + sigma * torch.randn(d.shape, device=d.device) * self.rand_pert
+                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1) \
+                        * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
+                else:
+                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.grad.data = (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
                 self.optimizer.step()
                 self.tgp.clamp()
-
+        self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
         for t in bar:
             logp = self.tgp.logp(index=self.index_batch)
             logp_nan = torch.isfinite(logp)
             loss = -logp[logp_nan].sum()
-            self.optimizer.zero_grad()
-            loss.backward()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward(retain_graph=True)
             with no_grad:
                 x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
                                for p in self.parameters_list], dim=1)
@@ -157,13 +155,11 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd)
                 if self.rand_pert:
-                    for name, prior in self.priors_dict.items():
-                        for n, dist in prior.d.items():
-                            prior.p[n].data += (dist.high - dist.low) * torch.randn(prior.p[n].data.shape,
-                                                                                    device=d.device) * self.rand_pert
-                    #d = d + sigma * torch.randn(d.shape, device=d.device) * self.rand_pert
+                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd) \
+                        * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
+                else:
+                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.grad.data = (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()

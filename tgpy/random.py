@@ -266,13 +266,15 @@ class GWNP(TgRandomField):
 
 
 class TP(TgRandomField):
-    def __init__(self, generator, transport, *args, **kwargs):
+    def __init__(self, generator, transport, annealing=1, annealing_prior=1, *args, **kwargs):
         super(TP, self).__init__(*args, **kwargs)
         self.generator = generator
         if isinstance(transport, TgTransport):
             self.transport = nn.ModuleList([transport])
         else:
             self.transport = nn.ModuleList(transport)
+        self.annealing = annealing
+        self.annealing_prior = annealing_prior
 
     def forward(self, x, h, noise=False):
         hi = h
@@ -369,9 +371,12 @@ class TP(TgRandomField):
         return self.generator.logp(inverse_y) + self.logdetgradinv(x, list_obs_y=list_obs_y)
 
     def logp(self, x=None, y=None, index=Ellipsis):
-        # return -sum([(p**2)/2 for p in self.parameters()])
-        # return self.logp_priors()
-        return self.logp_likelihood(x=x, y=y, index=index) + self.logp_priors()
+        r = 0
+        if self.annealing:
+            r += self.logp_likelihood(x=x, y=y, index=index)
+        if self.annealing_prior:
+            r += self.logp_priors()
+        return r
 
 
 class TGP(TP):
