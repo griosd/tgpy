@@ -163,7 +163,7 @@ class DummyKernel(TgKernel):
     def __init__(self, *args, inputs=Ellipsis):
         super(DummyKernel, self).__init__(inputs=inputs)
         for i, arg in enumerate(args):
-            setattr(self, 'p{}'.format(i), arg)
+            setattr(self, 'prior{}'.format(i), arg)
         self.metric = L0(inputs=inputs)
 
     def forward(self, x1, x2=None):
