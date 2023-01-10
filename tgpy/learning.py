@@ -19,9 +19,11 @@ class TgLearning:
         self.pbatch = 1.0 if pbatch is False or pbatch is True else pbatch
 
         self.index = index
-        if self.index is None:
+        if self.index is None and self.tgp.obs_x is not None:
             self.index = torch.arange(len(self.tgp.obs_x), device=_device)
-        self.index_observed = torch.clone(self.index)
+            self.index_observed = torch.clone(self.index)
+        else:
+            self.index_observed = None
 
     @property
     def nbatch(self):
@@ -33,7 +35,7 @@ class TgLearning:
 
     @property
     def nobs(self):
-        return len(self.index)
+        return len(self.index) if self.index is not None else 0
 
     @property
     def priors_list(self):
