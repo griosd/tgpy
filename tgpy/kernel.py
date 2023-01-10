@@ -161,7 +161,7 @@ class WN(TgKernel):
 
 class DummyKernel(TgKernel):
     def __init__(self, *args, inputs=Ellipsis):
-        super(Dummy, self).__init__(inputs=inputs)
+        super(DummyKernel, self).__init__(inputs=inputs)
         for i, arg in enumerate(args):
             setattr(self, 'p{}'.format(i), arg)
         self.metric = L0(inputs=inputs)
