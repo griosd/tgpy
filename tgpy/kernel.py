@@ -1,4 +1,5 @@
 import torch
+import math
 from torch import nn
 from .metric import L0, L1, L2, MinimumSum, Diff, Prod
 
@@ -69,6 +70,7 @@ class KernelSum(KernelComposition):
     def forward(self, x1, x2=None):
         return self.kernel1.forward(x1, x2) + self.kernel2.forward(x1, x2)
 
+# Non stationary kernels
 
 class BW(TgKernel):
     def __init__(self, relevance, inputs=Ellipsis):
@@ -101,6 +103,7 @@ class POL(TgKernel):
         f = self.metric(x1, x2)
         return torch.sign(f) * (f.abs() ** self.power()[:, :, None])
 
+# Stationary kernels
 
 class RQ(TgKernel):
     def __init__(self, var, relevance, freedom, inputs=Ellipsis):
@@ -126,18 +129,6 @@ class SE(TgKernel):
         return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
 
 
-class SINC(TgKernel):
-    def __init__(self, var, relevance, period, inputs=Ellipsis):
-        super(SINC, self).__init__(inputs=inputs)
-        self.var = var
-        self.relevance = relevance
-        self.period = period
-        self.metric = Diff(inputs=inputs)
-
-    def forward(self, x1, x2=None):
-        return self.var()[:, :, None] * torch.exp(-((torch.sin(self.metric(x1, x2) / self.period()[:, None, None, :]) ** 2) / (self.relevance()[:, None, None, :] ** 2))).sum(dim=-1)
-
-
 class OU(TgKernel):
     def __init__(self, var, relevance, inputs=Ellipsis):
         super(OU, self).__init__(inputs=inputs)
@@ -148,6 +139,44 @@ class OU(TgKernel):
     def forward(self, x1, x2=None):
         return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
 
+# Periodic Kernels
+
+class SINC(TgKernel):
+    def __init__(self, var, relevance, period, inputs=Ellipsis):
+        super(SINC, self).__init__(inputs=inputs)
+        self.var = var
+        self.relevance = relevance
+        self.period = period
+        self.metric = Diff(inputs=inputs)
+
+    def forward(self, x1, x2=None):
+        # TODO(ale) reestructurar sinc kernel, ver parche cuando x,x' = 0
+        aux = (torch.sin(self.metric(x1, x2) / self.period()[:, None, None, :]) ** 2) / (self.relevance()[:, None, None, :] ** 2)
+        return self.var()[:, :, None] * torch.exp(-aux).sum(dim=-1)
+
+
+class SM(TgKernel):
+    """Spectral mixture kernel"""
+    def __init__(self, var, relevance, period, inputs=Ellipsis):
+        super(SM, self).__init__(inputs=inputs)
+        self.var = var
+        self.relevance = relevance
+        self.period = period
+        self.metric = L2(self.relevance, inputs=inputs)
+
+    def forward(self, x1, x2=None):
+        twopi = torch.tensor(2 * math.pi)
+        tau = -self.metric(x1, x2)
+        return self.var()[:, :, None] * (-tau).exp() * torch.cos((twopi * tau) / self.period()[:, None, None, :])
+
+
+class SIN(TgKernel):
+    """Sin periodic kernel"""
+    def __init__(self, var, relevance, inputs=Ellipsis):
+        super(SM, self).__init__(inputs=inputs)
+        pass
+
+# Misc Kernels
 
 class WN(TgKernel):
     def __init__(self, var, inputs=Ellipsis):
