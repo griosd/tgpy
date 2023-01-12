@@ -151,8 +151,9 @@ class SINC(TgKernel):
 
     def forward(self, x1, x2=None):
         # TODO(ale) reestructurar sinc kernel, ver parche cuando x,x' = 0
-        aux = (torch.sin(self.metric(x1, x2) / self.period()[:, None, None, :]) ** 2) / (self.relevance()[:, None, None, :] ** 2)
-        return self.var()[:, :, None] * torch.exp(-aux).sum(dim=-1)
+        relevance = self.relevance()[:, None, None, :]
+        exp_arg = (torch.sin(self.metric(x1, x2) / self.period()[:, None, None, :]) ** 2) / (relevance ** 2)
+        return self.var()[:, :, None] * torch.exp(-exp_arg).sum(dim=-1)
 
 
 class SM(TgKernel):
@@ -166,15 +167,24 @@ class SM(TgKernel):
 
     def forward(self, x1, x2=None):
         twopi = torch.tensor(2 * math.pi)
-        tau = -self.metric(x1, x2)
-        return self.var()[:, :, None] * (-tau).exp() * torch.cos((twopi * tau) / self.period()[:, None, None, :])
+        tau = self.metric(x1, x2)
+        return self.var()[:, :, None] * (-tau).exp() * torch.cos((twopi * tau) / self.period()[:, :, None])
 
 
 class SIN(TgKernel):
     """Sin periodic kernel"""
-    def __init__(self, var, relevance, inputs=Ellipsis):
-        super(SM, self).__init__(inputs=inputs)
-        pass
+    def __init__(self, var, relevance, period, inputs=Ellipsis):
+        super(SIN, self).__init__(inputs=inputs)
+        self.var = var
+        self.relevance = relevance
+        self.period = period
+        self.metric = Diff(inputs=inputs)
+
+    def forward(self, x1, x2=None):
+        relevance = self.relevance()[:, None, :]
+        period = self.period()[:, None, :]
+        exp_arg = 2 * torch.sin(math.pi * self.metric(x1, x2) / period).pow(2) / (relevance ** 2)
+        return self.var()[:, :, None] * (-exp_arg).exp()
 
 # Misc Kernels
 

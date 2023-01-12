@@ -31,7 +31,7 @@ class Diff(TgMetric):
         super(Diff, self).__init__(inputs=inputs)
 
     def m(self, x1, x2):
-        return x1 - x2
+        return (x1 - x2)[None, :, :, :].sum(dim=-1)
 
 
 class L0(TgMetric):
@@ -40,7 +40,7 @@ class L0(TgMetric):
 
     def m(self, x1, x2):
         dx = x1 - x2
-        return (dx == 0).all(dim=-1)+0.0
+        return (dx == 0).all(dim=-1) + 0.0
 
 
 class L1(TgMetric):
