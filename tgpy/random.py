@@ -343,6 +343,22 @@ class TP(TgRandomField):
 
     def predict(self, inputs, quantiles=0.2, median=True, mean=True, nsamples=100, samples=False, noise=False,
                 noise_cross=False):
+        """
+        Predicts with the transport process.
+
+        :param inputs: _description_
+        :param quantiles: a float, between [0, 1] quantile to create confidence interval, defaults to 0.2.
+        :param median: a bool, if True the prediction will be the median of the samples, defaults to True.
+        :param mean: a bool, if true the prediction will be the median of the samples, overrides 'median' arg,
+            defaults to True.
+        :param nsamples: an int, number of samples, defaults to 100.
+        :param samples: a bool, if True it returns the samples alongside the dataframe with results,  defaults to False.
+        :param noise: a bool, if True the samples will include noise , defaults to False.
+        :param noise_cross: a bool, if True samples assuming noisy observations, defaults to False.
+
+        :return: a pandas DataFrame, with statistic (median or mean) and confidence intervals, if 'samples' if True
+            also return the process samples in DataFrame form. 
+        """
         _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
         if len(inputs.shape) == 1:
             pred = self.dt.original(inputs)

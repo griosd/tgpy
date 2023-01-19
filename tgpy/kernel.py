@@ -142,6 +142,7 @@ class OU(TgKernel):
 # Periodic Kernels
 
 class SINC(TgKernel):
+    """SINC periodic kernel"""
     def __init__(self, var, relevance, period, inputs=Ellipsis):
         super(SINC, self).__init__(inputs=inputs)
         self.var = var
@@ -150,10 +151,13 @@ class SINC(TgKernel):
         self.metric = Diff(inputs=inputs)
 
     def forward(self, x1, x2=None):
-        # TODO(ale) reestructurar sinc kernel, ver parche cuando x,x' = 0
-        relevance = self.relevance()[:, None, None, :]
-        exp_arg = (torch.sin(self.metric(x1, x2) / self.period()[:, None, None, :]) ** 2) / (relevance ** 2)
-        return self.var()[:, :, None] * torch.exp(-exp_arg).sum(dim=-1)
+        # note: torch sinc function is sin(pi x) / (pi x), that means pi multiplication is included.
+        relevance = self.relevance()[:, None, :]
+        period = self.period()[:, None, :]
+        sinc_term = torch.sinc(self.metric(x1, x2) / relevance)
+        cos_term = torch.cos(2 * math.pi * self.metric(x1, x2) / period)
+
+        return self.var()[:, :, None] * sinc_term * cos_term
 
 
 class SM(TgKernel):
@@ -163,12 +167,13 @@ class SM(TgKernel):
         self.var = var
         self.relevance = relevance
         self.period = period
-        self.metric = L2(self.relevance, inputs=inputs)
+        self.metric = Diff(inputs=inputs)
 
     def forward(self, x1, x2=None):
-        twopi = torch.tensor(2 * math.pi)
-        tau = self.metric(x1, x2)
-        return self.var()[:, :, None] * (-tau).exp() * torch.cos((twopi * tau) / self.period()[:, :, None])
+        relevance = self.relevance()[:, None, :]
+        exp_term = (-(self.metric(x1, x2) / relevance).pow(2)).exp()
+        cos_term = torch.cos((2 * math.pi * self.metric(x1, x2)) / self.period()[:, :, None])
+        return self.var()[:, :, None] * exp_term * cos_term
 
 
 class SIN(TgKernel):
