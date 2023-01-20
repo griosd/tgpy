@@ -4,7 +4,10 @@ import torch.nn as nn
 from .tensor import cholesky, _device, DataTensor
 from .prior import TgPrior
 from .cdf import NormGaussian
-
+#import para funcion plot_predict
+import matplotlib.pyplot as plt
+#import para funcion MAPE
+from sklearn.metrics import mean_absolute_error
 log2pi = math.log(2 * math.pi)
 
 
@@ -398,3 +401,161 @@ class TP(TgRandomField):
 class TGP(TP):
     def __init__(self, transport, *args, **kwargs):
         super(TGP, self).__init__(generator=GWNP(), transport=transport, *args, **kwargs)
+
+    def plot_predict(self, title='GP', x_label='$x$' , y_label='$y=f(x) + \eta$', nsamples=100,
+                     noise=False,  quantile=0.1, valid_index=None,
+                     return_pred=False, return_samples=False, plot_obs=True, plot_CI=True, plot_samples=False,
+                     ylim_by_CI=True, statistic='Mean',
+                     samples_kwargs={'alpha':0.05},
+                     CI_kwargs={'facecolor':'g', 'alpha':0.2, 'ls':'--'},
+                     obs_kwargs={'c':'black', 'marker':'X', 's':100, 'label':'Observations'},
+                     real_kwargs={'c':'black', 'ls':'--', 'lw':3, 'label':'Real Signal'},
+                     pred_kwargs={'c':'g', 'lw':4, 'label':'Predicted Signal', 'alpha':1.0}):
+        """
+        Creates the prediction of a GP and plots it.
+
+        :param title: a string, determines the title of the figure, defaults to 'GP'.
+        :param x_label: a string, determines the x label of the figure, defaults to '$x$'.
+        :param y_label: a string, determines the x label of the figure, defaults to $y=f(x) + \eta$'.
+        :param nsamples: an int, number of samples, default to 100.
+        :param noise: a bool, if True the samples will include noise, defaults to False.
+        :param quantile: a float, between [0, 1] quantile to create confidence interval, defaults to 0.1.
+        :param valid_index: a numpy.ndarray, the index of values for validation, defaults to None.
+        :param return_pred: a bool, if True, the function returns the DataFrame with the prediction, defaults to False.
+        :param return_samples: a bool, if True, the function returns the DataFrame with the samples, defaults to False.
+        :param plot_obs: a bool, if True, plots the observation of the GP, defaults to True.
+        :param plot_CI: a bool, if True, plots the CI of the GP, with the correspondent quantile, defaults to True.
+        :param plot_samples: a bool, if True, plots the samples of the GP, defaults to False.
+        :param ylim_by_CI: a bool, if True, the y axis fits according to the CI,
+            if False, the y axis fits according to the prediction curve, defaults to True.
+        :param statistic: a string, determines the statistic ('Mean' or 'Median') with wich the prediction will be calculated,
+            defaults to 'Mean'.
+            the prediction will be the median of the samples, defaults to True.
+        :param samples_kwargs: a dictionary, the kwargs for the plot of samples.
+        :param CI_kwargs: a dictionary, the kwargs for the plot of CI.
+        :param obs_kwargs: a dictionary, the kwargs for the plot of observations.
+        :param real_kwargs: a dictionary, the kwargs for the plot of real signal.
+        :param pred_kwargs: a dictionary, the kwargs for the plot of prediction.
+
+        :return: None, if return_pred True, returns the DataFrame with the prediction, if return_samples False
+            returns the Dataframe with the Samples, if both are True, returns both DataFrames pred and samples.
+        """
+
+        pred, samples = self.predict(self.dt.index, quantiles=quantile, nsamples=nsamples,
+                                    samples=True, noise=noise)
+
+        x = pred[self.dt.inputs].to_numpy().squeeze()
+        real = pred[self.dt.outputs].to_numpy().squeeze()
+        CI = 1 - 2 * quantile
+        quantile_low = int(quantile*100)
+        quantile_high = int(100 - quantile*100)
+        confidence_low = pred['Quantile ' + str(quantile_low)]
+        confidence_high = pred['Quantile ' + str(quantile_high)]
+        statistic = statistic.lower().capitalize()
+        med_post = pred[statistic]
+
+        if valid_index is None:
+            valid_index = self.dt.index
+        mape = round(MAPE(self, pred, valid_index, statistic), 2)
+        mae = round(MAE(self, pred, valid_index, statistic), 2)
+
+        fig = plt.figure(figsize=(20,6))
+
+        if plot_samples == True:
+            for i in range(len(samples)):
+                sample = samples.iloc[i]
+                plt.plot(x, sample, **samples_kwargs)
+
+        if plot_CI == True:
+            plt.fill_between(x,
+                confidence_low,
+                confidence_high,
+                **CI_kwargs,
+                label=str(100*CI) + '% CI')
+
+        plt.plot(x, real, **real_kwargs)
+
+        if plot_obs == True:
+            obs_index = self.obs_index
+            obs_x = pred[self.dt.inputs].loc[self.obs_index].sort_index()
+            obs_y = pred[self.dt.outputs].loc[self.obs_index].sort_index()
+            plt.scatter(obs_x, obs_y, **obs_kwargs)
+
+        plt.plot(x, med_post, **pred_kwargs)
+
+        leg = plt.legend(ncol=4, frameon=True, shadow=False, loc=9, edgecolor='k', fontsize = 18)
+        frame = leg.get_frame()
+        frame.set_facecolor('0.9')
+        plt.ylabel(y_label, fontsize = 18)
+        plt.xlabel(x_label, fontsize = 18)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
+        plt.xlim(x[0], x[len(x)-1])
+
+        if ylim_by_CI == True:
+            minim = min(confidence_low.min(), real.min())
+            maxim = max(confidence_high.max(), real.max())
+        else:
+            minim = min(med_post.min(), real.min())
+            maxim = max(med_post.max(), real.max())
+
+        dif = (maxim - minim)*0.1
+        plt.ylim(minim - dif, maxim + dif)
+        plt.title('{0} | MAPE={1:.2f}% | MAE={2:.2f}'.format(title, mape, mae), fontsize = 20)
+        plt.tight_layout()
+        plt.show()
+
+        if return_pred == True and return_samples == True:
+            return samples, pred
+        if return_pred == True:
+            return pred
+        if return_samples == True:
+            return samples
+
+
+def MAPE(tgp, pred, val_index, statistic='Mean'):
+
+    """
+    Calculates the MAPE of the prediction of a TGP.
+
+    :param tgp: a TGP object, the TGP.
+    :param pred: a dataframe, contains the prediction of the TGP.
+    :val_index: a numpy.ndarray, the index of values for validation.
+    :param statistic: a string, determines the statistic ('Mean' or 'Median') with wich the prediction will be calculated,
+            defaults to 'Mean'.
+    :return: an int, the MAPE of the prediction.
+    """
+
+    statistic = statistic.lower().capitalize()
+    real_valid = pred.iloc[val_index][tgp.dt.outputs].sort_index().to_numpy().squeeze()
+    med_pred_valid = pred.iloc[val_index][statistic].sort_index().to_numpy().squeeze()
+
+    APE = []
+    for i in range(len(val_index)):
+        if real_valid[i] == 0:
+            pass
+        else:
+            err = abs((real_valid[i] - med_pred_valid[i]) / real_valid[i])
+            APE.append(err)
+    MAPE = (sum(APE)/len(APE))
+
+    return MAPE*100
+
+def MAE(tgp, pred, val_index, statistic='Mean'):
+    """
+    Calculates the MAE of the prediction of a TGP.
+    :param tgp: a TGP object, the TGP.
+    :param pred: a dataframe, contains the prediction of the TGP.
+    :val_index: a numpy.ndarray, the index of values for validation.
+    :param statistic: a string, determines the statistic ('Mean' or 'Median') with wich the prediction will be calculated,
+        defaults to 'Mean'.
+    :return: an int, the MAE of the prediction.
+    """
+
+    statistic = statistic.lower().capitalize()
+    real_valid = pred.iloc[val_index][tgp.dt.outputs].sort_index().to_numpy().squeeze()
+    med_pred_valid = pred.iloc[val_index][statistic].sort_index().to_numpy().squeeze()
+
+    MAE = mean_absolute_error(real_valid, med_pred_valid)
+
+    return MAE
