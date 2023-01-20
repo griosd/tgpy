@@ -21,7 +21,7 @@ class TgPrior(nn.Module):
         self.p = nn.ParameterDict({n: nn.Parameter(self.d[n].sample((self.dim,))) for n in parameters})
         self.color = None
 
-    def forward(self):
+    def forward(self, *args, **kwargs):
         return torch.stack(tuple(self.p.values()), dim=1)
 
     def logp(self):

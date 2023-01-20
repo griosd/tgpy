@@ -303,8 +303,8 @@ class Relu(TgMapping):
         """
         We need one function.
 
-        :param scale: a function of t, to shift the ReLU.
-        :param shift: a constant to shift the ReLU.
+        :param scale: a tensor, to scale the ReLU.
+        :param shift: a tensor, to shift the ReLU.
         :param args: arguments to be passed to the Marginal class.
         :param kwargs: keyword arguments to be passed to the Marginal class.
         """
@@ -348,3 +348,57 @@ class Relu(TgMapping):
         :return: a torch.Tensor, the log-derivative of the inverse.
         """
         return -torch.ones_like(y[None, :]).mul(self.scale.log())
+
+
+class Affine(TgMapping):
+    """
+    This class implements the marginal transport h(t, x) = shift(t) + x * scale(t).
+
+    :param shift: an TgPrior or TgModule, to shift x * scale.
+    :param scale: an TgPrior or TgModule, to scale x.
+    :param args: arguments to be passed to the Marginal class.
+    :param kwargs: keyword arguments to be passed to the Marginal class.
+    """
+    def __init__(self, shift, scale, *args, **kwargs):
+        # noinspection PyArgumentList
+        super(Affine, self).__init__(*args, **kwargs)
+        self.shift = shift
+        self.scale = scale
+
+    def forward(self, t, x):
+        """
+        Computes the affine's pushforward h(t, x).
+
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
+
+        :return: a torch.Tensor, the pushforward: shift(t) + x * scale(t).
+        """
+        scale = self.scale(t)[:, None, :]
+        shift = self.shift(t)[:, None, :]
+        return (x * scale) + shift
+
+    def inverse(self, t, y):
+        """
+        Computes the inverse of h(t, x) with respect to x.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the inverse of h: (y - shift(t)) / scale(t).
+        """
+        scale = self.scale(t)[:, None, :]
+        shift = self.shift(t)[:, None, :]
+        return (y - shift) / scale
+
+    def log_gradient_inverse(self, t, y):
+        """
+        Computes the logarithm of the gradient (with respect to y) of the inverse of h.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the log-derivative of the inverse: -log(scale(t)).
+        """
+        scale = self.scale(t)[:, None, :]
+        return -torch.ones_like(y).mul(scale.log())
