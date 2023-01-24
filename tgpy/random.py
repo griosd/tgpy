@@ -1,13 +1,13 @@
 import math
 import torch
+
+import matplotlib.pyplot as plt
 import torch.nn as nn
+
 from .tensor import cholesky, _device, DataTensor
 from .prior import TgPrior
 from .cdf import NormGaussian
-#import para funcion plot_predict
-import matplotlib.pyplot as plt
-#import para funcion MAPE
-from sklearn.metrics import mean_absolute_error
+
 log2pi = math.log(2 * math.pi)
 
 
@@ -556,6 +556,6 @@ def MAE(tgp, pred, val_index, statistic='Mean'):
     real_valid = pred.iloc[val_index][tgp.dt.outputs].sort_index().to_numpy().squeeze()
     med_pred_valid = pred.iloc[val_index][statistic].sort_index().to_numpy().squeeze()
 
-    MAE = mean_absolute_error(real_valid, med_pred_valid)
+    MAE = (real_valid - med_pred_valid).abs().mean()
 
     return MAE
