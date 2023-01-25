@@ -328,21 +328,39 @@ class TP(TgRandomField):
                              noise_cross=noise_cross)
         return hi
 
-    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False):
-        if len(inputs.shape) == 1:
+    def latent(self, x, ntransport, nsamples=1, obs_x=None, obs_y=None, noise=False, noise_cross=False):
+        if obs_x is None:
+            obs_x = self.obs_x
+        if obs_y is None:
+            obs_y = self.obs_y
+        list_obs_y = self.inverse(obs_x, obs_y, return_inv=False, return_list=True, noise=True)
+        hi = self.generator.posterior(x, nsamples=nsamples)
+        for i in range(ntransport):
+            T = self.transport[i]
+            hi = T.posterior(x, hi, obs_x, list_obs_y[i], generator=self.generator, noise=noise,
+                             noise_cross=noise_cross)
+        return hi
+
+    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False,
+               ntransport=1):
+        if len(inputs.shape)==1:
             x = self.dt.tensor_inputs(inputs)
             columns = self.dt.original_inputs(inputs).index
         else:
             x = self.dt.original_to_tensor_inputs(inputs)
             columns = inputs.index
-        samples = self.posterior(x, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
+        if latent==True:
+            samples = self.latent(x, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
+                                  ntransport=ntransport)
+        else:
+            samples = self.posterior(x, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
         samples = samples.transpose(-1, -2).reshape(-1, samples.shape[1])
         samples = self.dt.tensor_to_original_outputs(samples)
         samples.columns = columns
         return samples
 
     def predict(self, inputs, quantiles=0.2, median=True, mean=True, nsamples=100, samples=False, noise=False,
-                noise_cross=False):
+                noise_cross=False, latent=False, ntransport=-1):
         """
         Predicts with the transport process.
 
@@ -355,11 +373,27 @@ class TP(TgRandomField):
         :param samples: a bool, if True it returns the samples alongside the dataframe with results,  defaults to False.
         :param noise: a bool, if True the samples will include noise , defaults to False.
         :param noise_cross: a bool, if True samples assuming noisy observations, defaults to False.
-
+        :param latent: a bool, if True samples only until a latent transport of the TGP.
+        :param ntransport: a positive int in range of the TGP tranports number, determines the last transport 
+            where the function will predict.
         :return: a pandas DataFrame, with statistic (median or mean) and confidence intervals, if 'samples' if True
             also return the process samples in DataFrame form. 
         """
-        _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
+         
+
+        if latent==True:
+            N=len(self.transport)
+            if ntransport==-1:
+                ntransport=N
+            if ntransport<=0 or type(ntransport)!=int:
+                 raise ValueError('ntransport must be a positive int value.')
+    
+            if ntransport not in range(N+1):
+                raise ValueError('TGP only have {0} transports, {1} out of range.'.format(N, ntransport))
+            _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
+                                   latent=True, ntransport=ntransport)
+        else:
+            _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
         if len(inputs.shape) == 1:
             pred = self.dt.original(inputs)
         else:
@@ -511,7 +545,6 @@ class TGP(TP):
             return pred
         if return_samples == True:
             return samples
-
 
 def MAPE(tgp, pred, val_index, statistic='Mean'):
 
