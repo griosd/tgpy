@@ -342,14 +342,23 @@ class TP(TgRandomField):
         return hi
 
     def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False,
-               ntransport=1):
+               ntransport=-1):
         if len(inputs.shape)==1:
             x = self.dt.tensor_inputs(inputs)
             columns = self.dt.original_inputs(inputs).index
         else:
             x = self.dt.original_to_tensor_inputs(inputs)
             columns = inputs.index
+
         if latent==True:
+            N=len(self.transport)
+            if ntransport==-1:
+                ntransport=N
+            if ntransport<=0 or type(ntransport)!=int:
+                 raise ValueError('ntransport must be a positive int value.')
+            if ntransport not in range(N+1):
+                raise ValueError('TGP only have {0} transports, {1} out of range.'.format(N, ntransport))
+
             samples = self.latent(x, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
                                   ntransport=ntransport)
         else:
@@ -379,17 +388,9 @@ class TP(TgRandomField):
         :return: a pandas DataFrame, with statistic (median or mean) and confidence intervals, if 'samples' if True
             also return the process samples in DataFrame form. 
         """
-         
 
         if latent==True:
-            N=len(self.transport)
-            if ntransport==-1:
-                ntransport=N
-            if ntransport<=0 or type(ntransport)!=int:
-                 raise ValueError('ntransport must be a positive int value.')
-    
-            if ntransport not in range(N+1):
-                raise ValueError('TGP only have {0} transports, {1} out of range.'.format(N, ntransport))
+
             _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
                                    latent=True, ntransport=ntransport)
         else:
@@ -589,6 +590,6 @@ def MAE(tgp, pred, val_index, statistic='Mean'):
     real_valid = pred.iloc[val_index][tgp.dt.outputs].sort_index().to_numpy().squeeze()
     med_pred_valid = pred.iloc[val_index][statistic].sort_index().to_numpy().squeeze()
 
-    MAE = (real_valid - med_pred_valid).abs().mean()
+    MAE = abs((real_valid - med_pred_valid)).mean()
 
     return MAE
