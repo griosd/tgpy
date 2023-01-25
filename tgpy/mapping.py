@@ -210,7 +210,9 @@ class LogitScale(TgMapping):
 
         :return: The pushforward  l + u/(1 + e^(-scale(t) * (x-shift(t)))).
         """
-        return self.lower + self.upper / (1 + torch.exp(-self.scale() * (h - self.shift())))
+        scale = self.scale()[:, None, :]
+        shift = self.shift()[:, None, :]
+        return self.lower + self.upper / (1 + torch.exp(-scale * (h - shift)))
 
     def inverse(self, x, y):
         """
@@ -221,7 +223,9 @@ class LogitScale(TgMapping):
 
         :return: The inverse of h: shift(t) - log(u/(y-l) - 1)/scale(t).
         """
-        return self.shift() - torch.log(self.upper / (y - self.lower) - 1) / self.scale()
+        scale = self.scale()[:, None, :]
+        shift = self.shift()[:, None, :]
+        return shift - torch.log(self.upper / (y - self.lower) - 1) / scale
         # self.shift(t)+(torch.log((y-self.lower)/self.upper)-torch.log(1-(y+self.lower)/self.upper))/self.scale(t)
 
     def log_gradient_inverse(self, x, y):
