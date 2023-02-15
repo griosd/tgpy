@@ -8,6 +8,7 @@ import torch.distributions.constraints as const
 import torch.distributions.transforms as trans
 from .tensor import zero, one, two, eps4, to_numpy
 from .utils import DictObj, color_next
+from scipy.stats import gaussian_kde
 
 
 class TgPrior(nn.Module):
@@ -41,7 +42,7 @@ class TgPrior(nn.Module):
             self.p[n].data = self.d[n].sample((self.dim,))
 
     def plot(self, nspace=100, ncols=2, mean=False, median=False, samples=True, kde=True, color=None, alpha=0.5,
-             *args, **kwargs):
+             save_as=None, *args, **kwargs):
         """
         Plots the priors of each group of an NgPrior.
 
@@ -50,9 +51,10 @@ class TgPrior(nn.Module):
         :param mean: a boolean, whether to plot the mean of each prior as a vertical line.
         :param median: a boolean, whether to plot the median of each prior as a vertical line.
         :param samples: a boolean, whether to scatter-plot samples.
-        :param kde: a kde, whether to plot the kde of samples.
+        :param kde: a boolean, whether to plot the kde of samples.
         :param color: a string, a color.
         :param alpha: a float, a value used for blending.
+        :param save_as: a string, if is not None, the plot will be saved in the directory indicated in the parameter.
         :param args: arguments to pass to BetaLocation.plot.
         :param kwargs: keyword arguments to pass to BetaLocation.plot.
         """
@@ -79,8 +81,62 @@ class TgPrior(nn.Module):
                     axi.scatter(s, np.random.rand(len(s)) * sy, color=self.color, alpha=0.5)
                     if kde and s.size > 1 and np.unique(s).size > 1:
                         sb.kdeplot(s, ax=axi, color=self.color, alpha=0.5, fill=True, ls='--')
+
+        if save_as is not None:
+            fig.savefig(save_as, bbox_inches='tight', dpi=300)
         plt.show()
 
+    def l2error(self, nspace=100, ncols=2, color=None, plot=True):
+        """
+        Calculate the mean squared error between the prior distribution and the empirical kde distribution
+        for each group of an NgPrior.
+
+        :param nspace: an int, the steps of the x-axis.
+        :param ncols: an int, the number of columns for the plot.
+        :param color: a string, color of the plot.
+        :param plot: a boolean, wheter to plot the distributions.
+
+        :returns: a torch.tensor with the mean squared error of each dimension.
+        """
+        MSES = torch.zeros(len(self.d.items()))
+
+        if color is not None:
+            self.color = color
+        elif self.color is None:
+            self.color = color_next()
+
+        nrows = int(np.ceil(len(self.d) / ncols))
+        if plot:
+            fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+        for i, (g, d) in enumerate(self.d.items()):
+            
+            s = to_numpy(self.p[g].data)
+            xmin = min(min(s), d.low.item())
+            xmin = min(0.9 * xmin, 1.1 * xmin)
+            xmax = max(max(s), d.high.item())
+            xmax = max(0.9 * xmax, 1.1 * xmax)
+            x = np.linspace(xmin, xmax, nspace)
+            kde = gaussian_kde(s)
+            density = to_numpy(d.log_prob(torch.Tensor(x).to(self.p[g].data.device)))
+            density[np.isnan(density)] = 0.0
+            density_max = density[np.isfinite(density)].max()
+            density[~np.isfinite(density)] = density_max
+            sy = np.exp(density.squeeze())
+            sy[density == 0.0] = 0.0
+            mean_error = ((kde(x) - sy) ** 2).mean()
+            MSES[i] = mean_error
+
+            if plot:
+                axi = ax[i // ncols, i % ncols]
+                axi.plot(x, kde(x), color=self.color, linestyle='--')
+                axi.plot(x, sy, color=self.color)
+                axi.fill_between(x, sy, kde(x), color=self.color, alpha=0.5)
+                axi.set_title(self.name + ' - ' + g + '/ MSE: {:.2e}'.format(mean_error))
+        
+        if plot:
+            plt.show()
+
+        return MSES
 
 @torch.jit.script
 def clamp_nan(t, lower: float, upper: float, nan: bool = False):

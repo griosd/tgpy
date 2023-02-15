@@ -32,6 +32,7 @@ class Diff(TgMetric):
 
     def m(self, x1, x2):
         return (x1 - x2)[None, :, :, :].sum(dim=-1)
+        # return x1 - x2
 
 
 class L0(TgMetric):
@@ -41,6 +42,7 @@ class L0(TgMetric):
     def m(self, x1, x2):
         dx = x1 - x2
         return (dx == 0).all(dim=-1) + 0.0
+        # return (dx == 0).all(dim=-1)+0.0
 
 
 class L1(TgMetric):
@@ -51,6 +53,7 @@ class L1(TgMetric):
     def m(self, x1, x2):
         dx = x1 - x2
         return (dx.abs()[None, :, :, :] / self.relevance()[:, None, None, :]).sum(dim=-1)
+        # return (dx.abs()[None, :, :, :] / self.relevance[:, None, None, :]).sum(dim=-1)
 
 
 class L2(TgMetric):
@@ -61,6 +64,7 @@ class L2(TgMetric):
     def m(self, x1, x2):
         dx = x1 - x2
         return (dx[None, :, :, :] / self.relevance()[:, None, None, :]).pow(2).sum(dim=-1)
+        # return (dx[None, :, :, :] / self.relevance[:, None, None, :]).pow(2).sum(dim=-1)
 
 
 class Prod(TgMetric):
@@ -70,6 +74,7 @@ class Prod(TgMetric):
 
     def m(self, x1, x2):
         return ((x1[None, :, :, :] / self.relevance()[:, None, None, :]) * x2[None, :, :, :]).sum(dim=-1)
+        # return ((x1[None, :, :, :] / self.relevance[:, None, None, :]) * x2[None, :, :, :]).sum(dim=-1)
 
 
 class MinimumProd(TgMetric):
@@ -79,6 +84,7 @@ class MinimumProd(TgMetric):
 
     def m(self, x1, x2):
         return (torch.min(x1, x2)[None, :, :, :] / self.relevance()[:, None, None, :]).prod(dim=-1)
+        # return (torch.min(x1, x2)[None, :, :, :] / self.relevance[:, None, None, :]).prod(dim=-1)
 
 
 class MinimumSum(TgMetric):
@@ -88,3 +94,4 @@ class MinimumSum(TgMetric):
 
     def m(self, x1, x2):
         return (torch.min(x1, x2)[None, :, :, :] / self.relevance()[:, None, None, :]).sum(dim=-1)
+        # return (torch.min(x1, x2)[None, :, :, :] / self.relevance[:, None, None, :]).sum(dim=-1)

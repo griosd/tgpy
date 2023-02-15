@@ -250,6 +250,13 @@ class TgRandomField(nn.Module):
         for prior in sorted(self.priors.keys()):
             self.priors[prior].plot(*args, **kwargs)
 
+    def l2error(self, *args, **kwargs):
+        MSES = []
+        for prior in sorted(self.priors.keys()):
+            prior_error = self.priors[prior].l2error(*args, **kwargs)
+            MSES.append(prior_error[:, None])
+        return torch.concat(MSES, 1).transpose(0, 1)
+
 
 class GWNP(TgRandomField):
     def __init__(self, *args, **kwargs):
@@ -341,9 +348,8 @@ class TP(TgRandomField):
                              noise_cross=noise_cross)
         return hi
 
-    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False,
-               ntransport=-1):
-        if len(inputs.shape)==1:
+    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False, ntransport=-1):
+        if len(inputs.shape) == 1:
             x = self.dt.tensor_inputs(inputs)
             columns = self.dt.original_inputs(inputs).index
         else:
@@ -390,7 +396,6 @@ class TP(TgRandomField):
         """
 
         if latent==True:
-
             _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
                                    latent=True, ntransport=ntransport)
         else:
@@ -437,10 +442,20 @@ class TGP(TP):
     def __init__(self, transport, *args, **kwargs):
         super(TGP, self).__init__(generator=GWNP(), transport=transport, *args, **kwargs)
 
-    def plot_predict(self, title='GP', x_label='$x$' , y_label='$y=f(x) + \eta$', nsamples=100,
-                     noise=False,  quantile=0.1, valid_index=None,
-                     return_pred=False, return_samples=False, plot_obs=True, plot_CI=True, plot_samples=False,
-                     ylim_by_CI=True, statistic='Mean',
+    def plot_predict(self,
+                     title='GP',
+                     x_label='$x$',
+                     y_label='$y=f(x) + \eta$', nsamples=100,
+                     noise=False,
+                     quantile=0.1,
+                     valid_index=None,
+                     return_pred=False,
+                     return_samples=False,
+                     plot_obs=True,
+                     plot_CI=True,
+                     plot_samples=False,
+                     ylim_by_CI=True,
+                     statistic='Mean',
                      samples_kwargs={'alpha':0.05},
                      CI_kwargs={'facecolor':'g', 'alpha':0.2, 'ls':'--'},
                      obs_kwargs={'c':'black', 'marker':'X', 's':100, 'label':'Observations'},
@@ -461,11 +476,10 @@ class TGP(TP):
         :param plot_obs: a bool, if True, plots the observation of the GP, defaults to True.
         :param plot_CI: a bool, if True, plots the CI of the GP, with the correspondent quantile, defaults to True.
         :param plot_samples: a bool, if True, plots the samples of the GP, defaults to False.
-        :param ylim_by_CI: a bool, if True, the y axis fits according to the CI,
-            if False, the y axis fits according to the prediction curve, defaults to True.
-        :param statistic: a string, determines the statistic ('Mean' or 'Median') with wich the prediction will be calculated,
-            defaults to 'Mean'.
-            the prediction will be the median of the samples, defaults to True.
+        :param ylim_by_CI: a bool, if True, the y axis fits according to the CI, if False, the y axis fits according to
+        the prediction curve, defaults to True.
+        :param statistic: a string, determines the statistic ('Mean' or 'Median') with the prediction will be
+        calculated, defaults to 'Mean'. the prediction will be the median of the samples, defaults to True.
         :param samples_kwargs: a dictionary, the kwargs for the plot of samples.
         :param CI_kwargs: a dictionary, the kwargs for the plot of CI.
         :param obs_kwargs: a dictionary, the kwargs for the plot of observations.

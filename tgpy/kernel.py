@@ -116,6 +116,17 @@ class RQ(TgKernel):
     def forward(self, x1, x2=None):
         freedom = self.freedom()[:, :, None]
         return self.var()[:, :, None] * (1 + self.metric(x1, x2)/freedom).pow(-freedom)
+        # freedom = self.freedom[:, :, None]
+        # return self.var[:, :, None] * (1 + self.metric(x1, x2)/freedom).pow(-freedom)
+
+    def grad(self, x1, x2=None):
+        freedom = self.freedom[:, :, None]
+        dx = (x1 - x2) / self.relevance
+        k1 = self.forward(x1, x2).pow((freedom + torch.ones_like(freedom)) / freedom)
+        return -2 * k1[:, :, :, :, None] * dx[None, None, :, :, :]
+
+    def hess_trace(self, x1, x2=None):
+        raise NotImplementedError
 
 
 class SE(TgKernel):
@@ -126,7 +137,19 @@ class SE(TgKernel):
         self.metric = L2(self.relevance, inputs=inputs)
 
     def forward(self, x1, x2=None):
-        return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
+        # return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
+        return self.var[:, :, None] * (-self.metric(x1, x2)).exp()
+
+    def grad(self, x1, x2=None):
+        return -2 * self.forward(x1, x2)[:, :, :, :, None] * (x1 - x2)[None, None, :, :, :] / self.relevance.pow(2)[None, None, None, :, :]
+
+    def hess_trace(self, x1, x2=None):
+        k = self.forward(x1, x2).squeeze()
+        dx = 2 * (x1 - x2) / self.relevance ** 2
+        trace = k[:, :, None] / (self.relevance.pow(2)[:, None, :] / 2)
+        trace = trace.sum(axis=-1)
+        trace -= (k[:, :, None] * dx.pow(2)).sum(axis=-1)
+        return trace
 
 
 class OU(TgKernel):
