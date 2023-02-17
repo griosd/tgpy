@@ -4,6 +4,7 @@ import torch.optim as optim
 from tqdm.notebook import tqdm
 from .random import TGP
 from .tensor import _device
+from .kernel import SE
 
 
 class TgLearning:
