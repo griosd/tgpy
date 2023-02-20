@@ -5,6 +5,7 @@ from tqdm.notebook import tqdm
 from .random import TGP
 from .tensor import _device
 from .kernel import SE
+from .prior import TgPrior
 
 
 class TgLearning:
@@ -457,7 +458,9 @@ class TgLearning:
 
         A = A.to(sigma.device)
         if kernel is None:
-            kernel = SE(var=torch.ones(1, 1, device=sigma.device), relevance=None)
+            var = TgPrior('var_se', [''], dim=1)
+            relevance = TgPrior('relevance', [''], dim=1)
+            kernel = SE(var=var, relevance=relevance)
 
         for t in range(drop_niters):
             logp = self.tgp.logp(index=self.index_batch)

@@ -131,22 +131,34 @@ class RQ(TgKernel):
 
 class SE(TgKernel):
     def __init__(self, var, relevance, inputs=Ellipsis):
+        """
+        Instantiates the Squared exponential kernel
+
+        :param var: a TgPrior or TgModule, the variance of the kernel.
+        :param relevance: a TgPrior or TgModule, the length-scale (or relevance for multi-input) of the kernel.
+        :param inputs: the index of the inputs, defaults to Ellipsis. TODO (ale) verificar bien que hace.
+        """
         super(SE, self).__init__(inputs=inputs)
+        # TODO (ale): add check to convert to TgConstant if a tensor is passed.
         self.var = var
         self.relevance = relevance
         self.metric = L2(self.relevance, inputs=inputs)
+        # TODO (ale) add test to check if var and relevance are TgPriors/TgModules, add option that if a tensor is
+        # provided, convert it to TgModule.
 
     def forward(self, x1, x2=None):
-        # return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
-        return self.var[:, :, None] * (-self.metric(x1, x2)).exp()
+        return self.var()[:, :, None] * (-self.metric(x1, x2)).exp()
+        # return self.var[:, :, None] * (-self.metric(x1, x2)).exp()
 
     def grad(self, x1, x2=None):
-        return -2 * self.forward(x1, x2)[:, :, :, :, None] * (x1 - x2)[None, None, :, :, :] / self.relevance.pow(2)[None, None, None, :, :]
+        relevance = self.relevance()
+        return -2 * self.forward(x1, x2)[:, :, :, :, None] * (x1 - x2)[None, None, :, :, :] / relevance.pow(2)[None, None, None, :, :]
 
     def hess_trace(self, x1, x2=None):
+        relevance = self.relevance()
         k = self.forward(x1, x2).squeeze()
-        dx = 2 * (x1 - x2) / self.relevance ** 2
-        trace = k[:, :, None] / (self.relevance.pow(2)[:, None, :] / 2)
+        dx = 2 * (x1 - x2) / relevance ** 2
+        trace = k[:, :, None] / (relevance.pow(2)[:, None, :] / 2)
         trace = trace.sum(axis=-1)
         trace -= (k[:, :, None] * dx.pow(2)).sum(axis=-1)
         return trace
