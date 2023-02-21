@@ -134,6 +134,26 @@ def to_numpy(tensor):
         return np.float32(tensor)
 
 
+def to_tensor(array, device=None):
+    """
+    Converts array or float to torch.Tensor
+
+    :param array: a numpy array or float.
+    :param device: a string, the device for the tensor.
+
+    :return: a torch tensor.
+    """
+    if isinstance(array, np.array) or isinstance(array, list):
+        return torch.Tensor(array, device=device)
+    elif isinstance(array, float):
+        return torch.ones(1, device=device) * array
+    elif isinstance(array, torch.Tensor):
+        return array
+    else:
+        print("Argument array could not be converted to tensor.")
+        return None
+
+
 def cholesky(matrix, upper=False, out=None, jitter=None):
     """
     Returns the Cholesky decomposition of A.

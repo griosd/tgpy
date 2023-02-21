@@ -3,23 +3,21 @@ import numpy as np
 import seaborn as sb
 import matplotlib.pyplot as plt
 import torch.nn as nn
+from .tensor import to_tensor
 
 class Constant(nn.Module):
-    def __init__(self, tensor, device, *args, **kwargs) -> None:
+    def __init__(self, tensor, device=None, *args, **kwargs):
         """
-        _summary_
+        Creates the constant module
 
-        :param tensor: _description_
-        :param device: _description_
+        :param tensor: a numpy array, list or torch Tensor, the constant. 
+        :param device: a string, the device to create de tensor.
         """
         super(Constant, self).__init__(*args, **kwargs)
-        # if tensor, just save, if float, convert to tensor, if array, convert to tensor.
         if isinstance(tensor, torch.Tensor):
             self.tensor = tensor
         else:
-            try:
-                self.tensor = torch.ones(1, device=device) * tensor
-            except:
-                pass
+            self.tensor = to_tensor(tensor, device=device)
+
     def forward(self):
         return self.tensor

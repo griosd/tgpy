@@ -1,11 +1,13 @@
 import torch
 from math import log
+import numpy as np
 import torch.optim as optim
 from tqdm.notebook import tqdm
 from .random import TGP
 from .tensor import _device
 from .kernel import SE
 from .prior import TgPrior
+from .modules import Constant
 
 
 class TgLearning:
@@ -236,8 +238,8 @@ class TgLearning:
         dists = d.pow(2).sum(axis=-1)
         h = 0.5 * dists.median().item() / log(n_samples + 1)
         h = h if h > 1e-3 else 1e-3
-        kernel.relevance = ((2*h)**0.5 * sigma @ projection).reshape(1, -1)
-        kernel.metric.relevance = ((2*h)**0.5 * sigma @ projection).reshape(1, -1)
+        kernel.relevance = Constant(((2*h)**0.5 * sigma @ projection).reshape(1, -1))
+        kernel.metric.relevance = Constant(((2*h)**0.5 * sigma @ projection).reshape(1, -1))
         xA1 = (params.mm(projection))[None, :, :]
         xA2 = (params.mm(projection))[:, None, :]
 
@@ -424,12 +426,12 @@ class TgLearning:
         :param A: a torch.tensor, the initial projection matrix.
         :param Tmin: a float, the minimum value taken by the annealing temperature.
         :param Tmax: a float, the maximum value taken by the annealing temperature.
-        :param Ttresh: a float, the minimum difference between the particle-avaraged magnitud necesary to keep the temperature.
+        :param Ttresh: a float, the minimum difference between the particle-averaged magnitude necessary to keep the temperature.
         :param update_loss: an int, the number of iterations to wait to update the loss value next to the progress bar.
         :param drop_niters: an int, the number of initial additional non-appended iterations.
         :param grad_methd: a string, the method used to calculate the gradient of alpha([A]). Can take the values approx, stochastic, or exact.
         :param niter_grad: an int, number of iterations in the batch stochastic gradient calculation.
-        :param N: an int, batch size in the barch stochastic gradient calculation.
+        :param N: an int, batch size in the batch stochastic gradient calculation.
         :param kernel: a tgpy.kernel, the kernel to be used, if is None SE will be used.
         """
         bar = tqdm(range(niters), ncols=950)
@@ -458,8 +460,8 @@ class TgLearning:
 
         A = A.to(sigma.device)
         if kernel is None:
-            var = TgPrior('var_se', [''], dim=1)
-            relevance = TgPrior('relevance', [''], dim=1)
+            var = TgPrior('var_se', ['dummy_input'], dim=1)
+            relevance = TgPrior('relevance', ['dummy_input'], dim=1)
             kernel = SE(var=var, relevance=relevance)
 
         for t in range(drop_niters):
