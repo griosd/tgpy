@@ -11,7 +11,6 @@ from .modules import Constant
 
 
 class TgLearning:
-
     def __init__(self, tgp: TGP, lr=0.01, index=None, pbatch=1.0, cycle=0, pot=1, rand_pert=0):
         self.tgp = tgp
         self.optimizer = optim.Adam(self.tgp.parameters(), lr=lr)
@@ -388,7 +387,7 @@ class TgLearning:
         :param kernel: a tgpy.kernel, the kernel to be used.
         :param grad_method: a string, the method used to calculate the gradient of alpha([A]). Can take the values approx, stochastic, or exact.
         :param niter: an int, number of iterations in the batch stochastic gradient calculation.
-        :param N: an int, batch size in the barch stochastic gradient calculation.
+        :param N: an int, batch size in the batch stochastic gradient calculation.
 
         :return: a torch.tensor, the matrix projection that minimizes the loss. If grad_method is exact, the real value of grad(alpha([A])) is used,
             if grad_method is approx, the method approximate numerically its value and if grad_method is stochastic, the gradient is approximated
