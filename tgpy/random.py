@@ -118,6 +118,26 @@ class CovarianceTransport(TgTransport):
         return -torch.diagonal(self.cholesky_cache, dim1=1, dim2=2).log().nansum(dim=1)
 
 
+class RadialTransport(TgTransport):
+    def __init__(self, *args, **kwargs):
+        super(RadialTransport).__init__(*args, **kwargs)
+
+    def forward(self, x, h, noise=False):
+        """ $T_{t}(x)$ """
+        pass
+
+    def inverse(self, x, y, noise=True):
+        """ $T_{t}^{-1}(y)$ """
+        pass
+
+    def posterior(self, x, h, obs_x, obs_y, generator, noise=False):
+        """ $T_{t}(x)$ """
+        pass
+
+    def logdetgradinv(self, x, y, sy=None):
+        pass
+
+
 class Norm2Transport(TgTransport):
     """ y = Q(F(|x|)) x / |x| """
     def __init__(self, obj, *args, **kwargs):

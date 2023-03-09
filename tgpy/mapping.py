@@ -29,16 +29,16 @@ class TgMapping(nn.Module):
         """
         return MarginalComposition(self, other)
 
-    def forward(self, x, h):
+    def forward(self, t, x):
         """
         A marginal transport needs a forward function that depends on time t and a distribution (empiric samples) x.
 
-        :param x: a torch.Tensor, a time instant.
-        :param h: a torch.Tensor, the distribution (empiric samples).
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
         """
         raise NotImplementedError
 
-    def inverse(self, x, y):
+    def inverse(self, t, y):
         """
         A marginal transport needs the inverse function of the forward.
 
@@ -47,15 +47,15 @@ class TgMapping(nn.Module):
         """
         raise NotImplementedError
 
-    def log_gradient_inverse(self, x, y):
+    def log_gradient_inverse(self, t, y):
         """
         A marginal transport needs to implement the logarithm of the gradient (with respect to y) of the inverse.
 
         :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
         """
-        dy_p = self.inverse(x, y * (one + eps4) + eps4)
-        dy_n = self.inverse(x, y * (one - eps4) - eps4)
+        dy_p = self.inverse(t, y * (one + eps4) + eps4)
+        dy_n = self.inverse(t, y * (one - eps4) - eps4)
         return torch.log((dy_p - dy_n) / (two * eps4 * (y + one)))
 
     def set_noise(self, noise):
@@ -88,18 +88,18 @@ class MarginalComposition(TgMapping):
         self.m0 = m0
         self.m1 = m1
 
-    def forward(self, x, h):
+    def forward(self, t, x):
         """
         Computes the pushforward h(t, x) of the composition.
 
-        :param x: a torch.Tensor, a time instant.
-        :param h: a torch.Tensor, the distribution (empiric samples).
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
 
         :return: The pushforward of the composition
         """
-        return self.m0(x, self.m1(x, h))
+        return self.m0(t, self.m1(t, x))
 
-    def inverse(self, x, y):
+    def inverse(self, t, y):
         """
         Computes the inverse of h(t, x) of the composition.
 
@@ -108,19 +108,19 @@ class MarginalComposition(TgMapping):
 
         :return: The inverse of the composition
         """
-        return self.m1.inverse(x, self.m0.inverse(x, y))
+        return self.m1.inverse(t, self.m0.inverse(t, y))
 
-    def log_gradient_inverse(self, x, y):
+    def log_gradient_inverse(self, t, y):
         """
         Computes the logarithm of the gradient (with respect to y) of inverse of h (the log-derivative of the inverse)
         via chain rule.
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: a torch.Tensor, the log-derivative of the inverse.
         """
-        return self.m1.log_gradient_inverse(x, self.m0.inverse(x, y)) + self.m0.log_gradient_inverse(x, y)
+        return self.m1.log_gradient_inverse(t, self.m0.inverse(t, y)) + self.m0.log_gradient_inverse(t, y)
 
     def set_noise(self, noise):
         """
@@ -147,33 +147,33 @@ class LogShift(TgMapping):
         super(LogShift, self).__init__(*args, **kwargs)
         self.shift = shift
 
-    def forward(self, x, h):
+    def forward(self, t, x):
         """
         Computes the pushforward h(t, x).
 
-        :param x: a torch.Tensor, a time instant.
-        :param h: a torch.Tensor, the distribution (empiric samples).
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
 
         :return: The pushforward shift(t) + e^x.
         """
-        return self.shift()[:, None, :] + torch.exp(h)
+        return self.shift()[:, None, :] + torch.exp(x)
 
-    def inverse(self, x, y):
+    def inverse(self, t, y):
         """
         Computes the inverse of h(t, x) with respect to x.
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: The inverse of h: log(y - shift(t)).
         """
         return torch.log(y[None, :, :] - self.shift()[:, None, :])
 
-    def log_gradient_inverse(self, x, y):
+    def log_gradient_inverse(self, t, y):
         """
         Computes the logarithm of the gradient (with respect to y) of inverse of h (the log-derivative of the inverse).
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: a torch.Tensor, the log-derivative of the inverse.
@@ -201,24 +201,24 @@ class LogitScale(TgMapping):
         self.lower = lower
         self.upper = upper
 
-    def forward(self, x, h):
+    def forward(self, t, x):
         """
         Computes the pushforward h(t, x).
 
-        :param x: a torch.Tensor, a time instant.
-        :param h: a torch.Tensor, the distribution (empiric samples).
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
 
         :return: The pushforward  l + u/(1 + e^(-scale(t) * (x-shift(t)))).
         """
         scale = self.scale()[:, None, :]
         shift = self.shift()[:, None, :]
-        return self.lower + self.upper / (1 + torch.exp(-scale * (h - shift)))
+        return self.lower + self.upper / (1 + torch.exp(-scale * (x - shift)))
 
-    def inverse(self, x, y):
+    def inverse(self, t, y):
         """
         Computes the inverse of h(t, x) with respect to x.
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: The inverse of h: shift(t) - log(u/(y-l) - 1)/scale(t).
@@ -228,11 +228,11 @@ class LogitScale(TgMapping):
         return shift - torch.log(self.upper / (y - self.lower) - 1) / scale
         # self.shift(t)+(torch.log((y-self.lower)/self.upper)-torch.log(1-(y+self.lower)/self.upper))/self.scale(t)
 
-    def log_gradient_inverse(self, x, y):
+    def log_gradient_inverse(self, t, y):
         """
         Computes the logarithm of the gradient (with respect to y) of inverse of h (the log-derivative of the inverse).
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: a torch.Tensor, the log-derivative of the inverse.
@@ -259,25 +259,25 @@ class BoxCoxShift(TgMapping):
         self.shift = shift
         self.power = power
 
-    def forward(self, x, h):
+    def forward(self, t, x):
         """
         Computes the pushforward h(t, x).
 
-        :param x: a torch.Tensor, a time instant.
-        :param h: a torch.Tensor, the distribution (empiric samples).
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
 
         :return: The pushforward ``shift(t) + sign(1 + x*power) * |1 + x*power|^(1/power)``.
         """
         power = self.power()[:, None, :]
-        scaled = (power * h) + one
+        scaled = (power * x) + one
         transformed = torch.sign(scaled) * (torch.abs(scaled) ** (one / power))
         return self.shift()[:, None, :] + transformed
 
-    def inverse(self, x, y):
+    def inverse(self, t, y):
         """
         Computes the inverse of h(t, x) with respect to x.
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: The inverse of h: ``(sign(y-shift(t)) * |y-shift(t)|^power - 1) / power``.
@@ -287,11 +287,11 @@ class BoxCoxShift(TgMapping):
         r = ((torch.sign(shifted) * torch.abs(shifted) ** power) - one) / power
         return r
 
-    def log_gradient_inverse(self, x, y):
+    def log_gradient_inverse(self, t, y):
         """
         Computes the logarithm of the gradient (with respect to y) of inverse of h (the log-derivative of the inverse).
 
-        :param x: a torch.Tensor, a time instant.
+        :param t: a torch.Tensor, a time instant.
         :param y: a torch.Tensor.
 
         :return: a torch.Tensor, the log-derivative of the inverse.
