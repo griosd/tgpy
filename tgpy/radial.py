@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.distributions.chi2 import Chi2
 
 
 class TgRadial(nn.Module):
@@ -16,7 +17,7 @@ class TgRadial(nn.Module):
         raise NotImplementedError
 
     def log_gradient_inverse(self, t, y):
-        # log det inverse S_t (y) = (n - 1) log [alpha^(-1)||y||]  - log [alpha' (alpha^{-1} (||y||)) ]
+        # log det inverse S_t (y) = (n - 1) log [alpha^(-1)||y||]  - log [alpha' (alpha^{-1} (||y||))]
         pass
 
     def __matmul__(self, other):
@@ -27,32 +28,24 @@ class TgRadial(nn.Module):
 
         :return: the same Composition object with updated number of operations.
         """
-        return MarginalComposition(self, other)
+        return RadialComposition(self, other)
 
-class CustomRadial(TgRadial):
-    # siempre hacer el caso l2
-    def __init__(self, radial_map, inv_radial_map, norm_type='l2', *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.radial_map = radial_map # alpha
-        self.inv_radial_map = inv_radial_map
-        # obtiain phi = alpha(r) / r
 
-        if norm_type.lower() !=  'l2':
-            raise NotImplementedError
-        self.norm_type = norm_type
+class RadialComposition(TgRadial):
 
+    def __init__(self, m0, m1, *args, **kwargs) -> None:
+        super(RadialComposition).__init__(*args, **kwargs)
+        self.m0 = m0
+        self.m1 = m1
+    
     def forward(self, t, x):
-        # apply mapping phi(||x||) x taking into account the norm
         pass
-
-    def inverse(self, t, y):
-        pass
-
 
 class DummyRadial(TgRadial):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # obtiain phi = alpha(r) / r
+        # phi = alpha(r) / r, in this case alpha(r) = r, so phi(r) 
+        # 
 
     def forward(self, t, x):
         # apply mapping phi(||x||) x taking into account the norm
@@ -66,7 +59,23 @@ class DummyRadial(TgRadial):
         pass
 
 
-class StudentTRadial(TgRadial):
+class ChiSquaredInv(TgRadial):
+    def __init__(self, *args, **kwargs):
+        super(TgRadial, self).__init__()
+        # duda, degrees of freedom equals length (t or y) ????
+
+    def forward(self, t, x):
+        degrees = len(x.squeeze())
+        distribution = Chi2(torch.torch.tensor[degrees])
+        #  obtain inverse of  cdf
+
+        return 
+
+    def inverse(self, t, y):
+        # return cdf
+        return 
+
+class StudentT(TgRadial):
     def __init__(self, *args, **kwargs) -> None:
         # TODO: add student-t parameters
         super(TgRadial, self).__init__()
