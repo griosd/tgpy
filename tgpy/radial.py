@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.distributions.chi2 import Chi2
+from torch.special import gammainc
 
 
 class TgRadial(nn.Module):
@@ -66,13 +66,13 @@ class ChiSquaredInv(TgRadial):
 
     def forward(self, t, x):
         degrees = len(x.squeeze())
-        distribution = Chi2(torch.torch.tensor[degrees])
         #  obtain inverse of  cdf
 
         return 
 
     def inverse(self, t, y):
         # return cdf
+        # torch.special.gammainc (k, x)
         return 
 
 class StudentT(TgRadial):
