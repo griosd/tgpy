@@ -56,6 +56,29 @@ class MarginalTransport(TgTransport):
         return self.mapping.log_gradient_inverse(x, y).nansum(dim=[1, 2])
 
 
+class RadialTransport(TgTransport):
+    def __init__(self, radial, *args, **kwargs):
+        super(RadialTransport).__init__(*args, **kwargs)
+        self.radial = radial
+
+    def forward(self, x, h, noise=False):
+        """ $T_{t}(x)$ """
+        return self.radial.forward(x, h)
+
+    def inverse(self, x, y, noise=True):
+        """ $T_{t}^{-1}(y)$ """
+
+        return self.radial.inverse(x, y)
+
+    def posterior(self, x, h, obs_x, obs_y, generator=None, noise=False, noise_cross=False):
+        # eq from 6.1.3
+        pass
+
+    def logdetgradinv(self, x, y, sy=None):
+
+        return self.radial.log_gradient_inverse(x, y).nansum(dim=[1, 2])
+
+
 class CovarianceTransport(TgTransport):
     def __init__(self, kernel, noise=None, use_cpu=False, *args, **kwargs):
         super(CovarianceTransport, self).__init__(*args, **kwargs)
@@ -116,27 +139,6 @@ class CovarianceTransport(TgTransport):
             else:
                 self.cholesky_cache = cholesky(self.kernel(x))
         return -torch.diagonal(self.cholesky_cache, dim1=1, dim2=2).log().nansum(dim=1)
-
-
-class RadialTransport(TgTransport):
-    def __init__(self, *args, **kwargs):
-        super(RadialTransport).__init__(*args, **kwargs)
-
-    def forward(self, x, h, noise=False):
-        """ $T_{t}(x)$ """
-        pass
-
-    def inverse(self, x, y, noise=True):
-        """ $T_{t}^{-1}(y)$ """
-        pass
-
-    def posterior(self, x, h, obs_x, obs_y, generator, noise=False):
-        """ $T_{t}(x)$ """
-        # eq from 6.1.3
-        pass
-
-    def logdetgradinv(self, x, y, sy=None):
-        pass
 
 
 class TgRandomField(nn.Module):
