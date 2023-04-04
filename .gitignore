@@ -1,0 +1,5 @@
+.vscode
+*.pyc
+/.idea/
+/ngenv/
+/ngtorch.egg-info/
