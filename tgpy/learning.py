@@ -4,7 +4,7 @@ import numpy as np
 import torch.optim as optim
 from tqdm.notebook import tqdm
 from .random import TGP
-from .tensor import _device
+from .tensor import _device, cholesky, zero
 from .kernel import SE
 from .prior import TgPrior
 from .modules import Constant
@@ -115,6 +115,7 @@ class TgLearning:
         end = self.niters + niters
         logp = self.tgp.logp()
         no_grad = torch.no_grad()
+        eg2 = zero
         with no_grad:
             sigma = []
             for name, prior in self.priors_dict.items():
@@ -136,14 +137,14 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 if self.rand_pert:
-                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1) \
+                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=eg2) \
                         * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
                 else:
-                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1)
+                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=eg2)
                 for i, p in enumerate([p for p in self.parameters_list]):
-                    p.grad.data = (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
+                    p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
-                self.optimizer.step()
+                #self.optimizer.step()
                 self.tgp.clamp()
         self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
         for t in bar:
@@ -161,14 +162,14 @@ class TgLearning:
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
                 if self.rand_pert:
-                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd) \
+                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10, eg2=eg2) \
                         * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
                 else:
-                    d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd)
+                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10, eg2=eg2)
                 for i, p in enumerate([p for p in self.parameters_list]):
-                    p.grad.data = (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
+                    p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
-                self.optimizer.step()
+                #self.optimizer.step()
                 self.tgp.clamp()
             self.append()
             if t % update_loss == 0:
@@ -181,7 +182,8 @@ class TgLearning:
                                                     logp_median, logp_std))
 
     @staticmethod
-    def svgd_direction(params: torch.Tensor, dlogp: torch.Tensor, sigma: torch.Tensor, annealing: torch.Tensor):
+    def svgd_direction(params: torch.Tensor, dlogp: torch.Tensor, sigma: torch.Tensor, annealing: torch.Tensor,
+                       alpha: float, eg2: torch.Tensor, beta: float = 0.9):
         """
         Calculate the kernel Stein direction with Gaussian kernel.
 
@@ -199,10 +201,13 @@ class TgLearning:
         h = h if h > 1e-3 else 1e-3
         k = torch.exp(- dists / (2 * h))
         k_der = d * k[:, :, None] / (sigma * h)
-
+        L = cholesky(k)
         ks = k.mm(dlogp)
         kd = k_der.sum(axis=0)
-        return (annealing * ks + kd) / n_samples
+        df = (annealing * ks + kd) / n_samples
+        eg2 = beta * eg2 + (1 - beta) * (df ** 2).sum()
+        alpha /= torch.sqrt(eg2)
+        return eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(torch.randn(dlogp.shape, device=L.device))
 
     def append(self):
         pass
