@@ -183,7 +183,7 @@ class TgLearning:
 
     @staticmethod
     def svgd_direction(params: torch.Tensor, dlogp: torch.Tensor, sigma: torch.Tensor, annealing: torch.Tensor,
-                       alpha: float, eg2: torch.Tensor, beta: float = 0.9):
+                       alpha: float=1, eg2: torch.Tensor=0, beta: float = 0.9, mcmc: bool=True):
         """
         Calculate the kernel Stein direction with Gaussian kernel.
 
@@ -201,13 +201,17 @@ class TgLearning:
         h = h if h > 1e-3 else 1e-3
         k = torch.exp(- dists / (2 * h))
         k_der = d * k[:, :, None] / (sigma * h)
-        L = cholesky(k)
+
         ks = k.mm(dlogp)
         kd = k_der.sum(axis=0)
         df = (annealing * ks + kd) / n_samples
-        eg2 = beta * eg2 + (1 - beta) * (df ** 2).sum()
-        alpha /= torch.sqrt(eg2)
-        return eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(torch.randn(dlogp.shape, device=L.device))
+        if mcmc:
+            L = cholesky(k)
+            eg2 = beta * eg2 + (1 - beta) * (df ** 2).sum()
+            alpha /= torch.sqrt(eg2)
+            return eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(torch.randn(dlogp.shape, device=L.device))
+        else:
+            return df
 
     def append(self):
         pass
@@ -574,7 +578,6 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-
     def execute_gsvgd(self, niters, update_loss=10):
         """
         Executes the SVGD algorithm.
@@ -611,10 +614,10 @@ class TgLearning:
                     dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
                     annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
                     if self.rand_pert:
-                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd) \
+                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd, mcmc=False) \
                         * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
                     else:
-                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd)
+                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd, mcmc=False)
                     for j, p in enumerate([p for p in self.parameters_list]):
                         p.grad.data = (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
                     self.tgp.clamp_grad()
