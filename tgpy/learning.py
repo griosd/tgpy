@@ -20,6 +20,7 @@ class TgLearning:
         self.pot = pot
         self.rand_pert = rand_pert
         self.pbatch = 1.0 if pbatch is False or pbatch is True else pbatch
+        self.eg2 = zero
 
         self.index = index
         if self.index is None and self.tgp.obs_x is not None:
@@ -102,7 +103,7 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-    def execute_svgd(self, niters, update_loss=10, drop_niters=0):
+    def execute_svgd(self, niters, update_loss=10, drop_niters=0, reset=True):
         """
         Executes the SVGD algorithm.
 
@@ -115,7 +116,8 @@ class TgLearning:
         end = self.niters + niters
         logp = self.tgp.logp()
         no_grad = torch.no_grad()
-        eg2 = zero
+        if reset:
+            self.eg2 = zero
         with no_grad:
             sigma = []
             for name, prior in self.priors_dict.items():
@@ -137,10 +139,10 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 if self.rand_pert:
-                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=eg2) \
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2) \
                         * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
                 else:
-                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=eg2)
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
@@ -162,10 +164,12 @@ class TgLearning:
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
                 if self.rand_pert:
-                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10, eg2=eg2) \
-                        * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                                                      eg2=self.eg2) * (1 + 0.01 * torch.randn(dlogp.shape,
+                                                                                              device=dlogp.device))
                 else:
-                    eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10, eg2=eg2)
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                                                      eg2=self.eg2)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
