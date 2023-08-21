@@ -550,7 +550,7 @@ class TGP(TP):
         for i in range(npriors):
             for j in range(ngroups):
                 prior_dict[('prior{}'.format(i), 'g{}'.format(j))] = self._priors_dict['prior{}'.format(i)].p[
-                    'g{}'.format(j)].data.clone().detach().numpy()
+                    'g{}'.format(j)].data.clone().detach().cpu().numpy()
         return prior_dict
 def MAPE(tgp, pred, val_index, statistic='Mean'):
 
