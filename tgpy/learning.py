@@ -661,13 +661,13 @@ class TgLearning:
                 'g{}'.format(rgroup)].data.clone().detach().cpu().numpy()
         return review_dict
 
-    def plotKS(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
+    def plotKSCDF(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
         """
         Plot the CDF of both samples with their KS_statistic
 
         :param theorical: a dict, the theorical sample for each prior and group
         :param review_dict: a dict, contains the sample each nreview iterations
-        :param ncols: an int, the plot's number of columns, defaults to 3.
+        :param ncols: an int, the plot's number of columns, defaults to 2
         :param rprior: an int, prior to review
         :param rgroup: an int, group to review
         """
@@ -719,5 +719,50 @@ class TgLearning:
                      verticalalignment='top', bbox=dict(facecolor='white', alpha=0.5))  # No se si es necesario
 
         # Mostrar el gráfico
+        plt.show()
+
+    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0, rgroup: int = 0):
+        """
+        Plot evolution of KS_statistic
+
+        :param theorical: a dict, the theorical sample for each prior and group
+        :param review_dict: a dict, contains the sample each nreview iterations
+        :param rprior: an int, prior to review
+        :param rgroup: an int, group to review
+        """
+        theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
+        keys = list(review_dict.keys())
+        #fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+        ks_statistic = []
+        # Numpys de datos
+        for i in range(len(review_dict.keys())):
+            sample = np.sort(review_dict['r{}'.format(i)])
+            theo = np.sort(theo)
+
+            data1 = theo
+            data2 = sample
+
+            # Concatenar los datos sin ordenar
+            data_all = np.concatenate([data1, data2])
+
+            # CDF: Cumulative distribution function
+            # Calcular la CDF empírica normalizada para data1
+            cdf1 = np.searchsorted(data1, data_all, side='right') / data1.size
+
+            # Calcular la CDF empírica normalizada para data2
+            cdf2 = np.searchsorted(data2, data_all, side='right') / data2.size
+
+            # Calcular la estadística KS
+            ks_statistic.append(np.abs(cdf1 - cdf2).max())
+            #index_ks = np.argmax(np.abs(cdf1 - cdf2))
+            #location_ks = data_all[index_ks]
+            #res = stats.kstest(data1, data2, N=len(sample))
+
+        # Crear el gráfico
+        plt.plot(ks_statistic, 'go-')
+        plt.xticks(range(len(review_dict.keys())), range(len(review_dict.keys())))
+        plt.ylabel('KS_statistic')
+        plt.xlabel('nreview')
+        plt.title('KS evolution for ' + 'prior{} '.format(rprior) + 'group{}'.format(rgroup))
         plt.show()
 
