@@ -732,7 +732,6 @@ class TgLearning:
         """
         theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
         keys = list(review_dict.keys())
-        #fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
         ks_statistic = []
         # Numpys de datos
         for i in range(len(review_dict.keys())):
@@ -754,9 +753,6 @@ class TgLearning:
 
             # Calcular la estadística KS
             ks_statistic.append(np.abs(cdf1 - cdf2).max())
-            #index_ks = np.argmax(np.abs(cdf1 - cdf2))
-            #location_ks = data_all[index_ks]
-            #res = stats.kstest(data1, data2, N=len(sample))
 
         # Crear el gráfico
         plt.plot(ks_statistic, 'go-')
