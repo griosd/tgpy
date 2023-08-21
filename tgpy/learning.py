@@ -658,7 +658,7 @@ class TgLearning:
         for k in range(int(nreview)):
             self.execute_svgd(int(np.ceil(niters / nreview)), mcmc=mcmc, reset=False)
             review_dict['r{}'.format(k)] = self.priors_dict['prior{}'.format(rprior)].p[
-                'g{}'.format(rgroup)].data.clone().detach().numpy()
+                'g{}'.format(rgroup)].data.clone().detach().cpu().numpy()
         return review_dict
 
     def plotKS(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
