@@ -8,6 +8,8 @@ from .tensor import cholesky, _device, DataTensor
 from .prior import TgPrior
 from .cdf import NormGaussian
 
+
+
 log2pi = math.log(2 * math.pi)
 
 
@@ -536,6 +538,20 @@ class TGP(TP):
         if return_samples == True:
             return samples
 
+    def get_priors(self, npriors: int, ngroups: int):
+        """
+        Save the value of sample in a dict
+
+        :param npriors: an int, the number of groups
+        :param ngroups: an int, the number of groups
+        :return: a dict, value of sample for each prior and group
+        """
+        prior_dict = {}
+        for i in range(npriors):
+            for j in range(ngroups):
+                prior_dict[('prior{}'.format(i), 'g{}'.format(j))] = self._priors_dict['prior{}'.format(i)].p[
+                    'g{}'.format(j)].data.clone().detach().numpy()
+        return prior_dict
 def MAPE(tgp, pred, val_index, statistic='Mean'):
 
     """
@@ -582,3 +598,4 @@ def MAE(tgp, pred, val_index, statistic='Mean'):
     MAE = abs((real_valid - med_pred_valid)).mean()
 
     return MAE
+

@@ -8,6 +8,9 @@ from .tensor import _device, cholesky, zero
 from .kernel import SE
 from .prior import TgPrior
 from .modules import Constant
+from scipy import stats
+from matplotlib import pyplot as plt
+
 
 
 class TgLearning:
@@ -103,13 +106,15 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-    def execute_svgd(self, niters, update_loss=10, drop_niters=0, reset=True):
+    def execute_svgd(self, niters, update_loss=10, drop_niters=0, reset=True, mcmc: bool = True):
         """
         Executes the SVGD algorithm.
 
         :param niters: an int, the number of iterations for the algorithm.
         :param update_loss: an int, the number of iterations to wait to update the loss value next to the progress bar.
         :param drop_niters: an int, the number of initial additional non-appended iterations.
+        :param reset: a bool, if it's true reset eg2 to zero
+        :param mcmc: a bool, if it's true run mcmc in the training
         """
         bar = tqdm(range(niters), ncols=950)
         update_loss -= 1
@@ -139,10 +144,10 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 if self.rand_pert:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2) \
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc) \
                         * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
                 else:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2)
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
@@ -165,11 +170,11 @@ class TgLearning:
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
                 if self.rand_pert:
                     self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
-                                                      eg2=self.eg2) * (1 + 0.01 * torch.randn(dlogp.shape,
+                                                      eg2=self.eg2, mcmc=mcmc) * (1 + 0.01 * torch.randn(dlogp.shape,
                                                                                               device=dlogp.device))
                 else:
                     self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
-                                                      eg2=self.eg2)
+                                                      eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
@@ -215,7 +220,7 @@ class TgLearning:
             alpha /= torch.sqrt(eg2)
             return eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(torch.randn(dlogp.shape, device=L.device))
         else:
-            return df
+            return None, df
 
     def append(self):
         pass
@@ -635,3 +640,84 @@ class TgLearning:
                 desc = 'svgd gibbs | batch: {0:.2f}% | iters: [{1}, {2}) | logp: {3:.3f} ± {4:.3f} |'
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
+
+    def review(self, niters: int = 100, nreview: int = 1, rprior: int = 0, rgroup: int = 0, mcmc: bool = True):
+        """
+        Save a dictionary with nreview samples
+
+        :param niters: an int, the algorithm's number of iterations.
+        :param nreview: un int, number of round in which review the training
+        :param rprior: un int, prior to review
+        :param rgroup: un int, group to review
+        :param mcmc: a bool, if it's true run mcmc in the training
+        :return: a dict, value of sample for each prior and group
+        """
+
+        review_dict = {}
+        self.eg2 = zero
+        for k in range(int(nreview)):
+            self.execute_svgd(int(np.ceil(niters / nreview)), mcmc=mcmc, reset=False)
+            review_dict['r{}'.format(k)] = self.priors_dict['prior{}'.format(rprior)].p[
+                'g{}'.format(rgroup)].data.clone().detach().numpy()
+        return review_dict
+
+    def plotKS(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
+        """
+        Plot the CDF of both samples with their KS_statistic
+
+        :param theorical: a dict, the theorical sample for each prior and group
+        :param review_dict: a dict, contains the sample each nreview iterations
+        :param ncols: an int, the plot's number of columns, defaults to 3.
+        :param rprior: an int, prior to review
+        :param rgroup: an int, group to review
+        """
+        theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
+        keys = list(review_dict.keys())
+        nrows = int(np.ceil(len(review_dict.keys()) / ncols))
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+
+        # Numpys de datos
+        for i in range(len(review_dict.keys())):
+            sample = np.sort(review_dict['r{}'.format(i)])
+            theo = np.sort(theo)
+
+            data1 = theo
+            data2 = sample
+
+            # Concatenar los datos sin ordenar
+            data_all = np.concatenate([data1, data2])
+
+            # CDF: Cumulative distribution function
+            # Calcular la CDF empírica normalizada para data1
+            cdf1 = np.searchsorted(data1, data_all, side='right') / data1.size
+
+            # Calcular la CDF empírica normalizada para data2
+            cdf2 = np.searchsorted(data2, data_all, side='right') / data2.size
+
+            # Calcular la estadística KS
+            ks_statistic = np.abs(cdf1 - cdf2).max()
+            index_ks = np.argmax(np.abs(cdf1 - cdf2))
+            location_ks = data_all[index_ks]
+            res = stats.kstest(data1, data2, N=len(sample))
+
+            # Crear el gráfico
+            axi = ax[i // ncols, i % ncols]
+            axi.set_title('CDF Empíricas y Estadística KS ' + keys[i])
+            axi.plot(np.sort(data_all), np.sort(cdf1), label='CDF sample Teorico')
+            axi.plot(np.sort(data_all), np.sort(cdf2), label='CDF sample SVGD')
+            axi.plot([location_ks, location_ks], [cdf2[index_ks], cdf1[index_ks]], '--')
+
+            axi.set_ylabel('Probabilidad Acumulada')
+
+            axi.legend()
+
+            # Agregar el valor de la estadística KS al gráfico
+            axi.text(0.05, 0.65, f'KS = {ks_statistic:.2f}', transform=axi.transAxes, fontsize=12,
+                     verticalalignment='top', bbox=dict(facecolor='white', alpha=0.5))
+
+            axi.text(0.05, 0.47, f'pvalue = {res[1]:.2f}', transform=axi.transAxes, fontsize=12,
+                     verticalalignment='top', bbox=dict(facecolor='white', alpha=0.5))  # No se si es necesario
+
+        # Mostrar el gráfico
+        plt.show()
+
