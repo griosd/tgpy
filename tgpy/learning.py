@@ -721,7 +721,7 @@ class TgLearning:
         # Mostrar el gráfico
         plt.show()
 
-    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0, rgroup: int = 0):
+    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0, rgroup: int = 0, showplot: bool=True):
         """
         Plot evolution of KS_statistic
 
@@ -729,6 +729,7 @@ class TgLearning:
         :param review_dict: a dict, contains the sample each nreview iterations
         :param rprior: an int, prior to review
         :param rgroup: an int, group to review
+        :param showplot: a bool, if it's true the plot show
         """
         theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
         keys = list(review_dict.keys())
@@ -755,10 +756,13 @@ class TgLearning:
             ks_statistic.append(np.abs(cdf1 - cdf2).max())
 
         # Crear el gráfico
-        plt.plot(ks_statistic, 'go-')
-        plt.xticks(range(len(review_dict.keys())), range(len(review_dict.keys())))
+        plt.figure(figsize=(15, 7))
+        plt.plot(ks_statistic, 'go', ms=8, alpha=0.7)
+        #plt.xticks(range(len(review_dict.keys())), range(len(review_dict.keys())))
         plt.ylabel('KS_statistic')
         plt.xlabel('nreview')
         plt.title('KS evolution for ' + 'prior{} '.format(rprior) + 'group{}'.format(rgroup))
-        plt.show()
-
+        plt.ylim([0, 1])
+        if showplot:
+            plt.show()
+        return ks_statistic
