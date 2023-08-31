@@ -214,7 +214,7 @@ class TgLearning:
 
     def execute_gsvgd(self, niters, update_loss=10):
         """
-        Executes the SVGD algorithm.
+        Executes the Gibbs SVGD algorithm.
 
         :param niters: an int, the algorithm's number of iterations.
         :param update_loss: an int, the number of iterations to wait to update the loss value's progress bar, defaults
