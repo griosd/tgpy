@@ -14,14 +14,13 @@ from matplotlib import pyplot as plt
 
 
 class TgLearning:
-    def __init__(self, tgp: TGP, lr=0.01, index=None, pbatch=1.0, cycle=0, pot=1, rand_pert=0):
+    def __init__(self, tgp: TGP, lr=0.01, index=None, pbatch=1.0, cycle=0, pot=1):
         self.tgp = tgp
         self.optimizer = optim.Adam(self.tgp.parameters(), lr=lr)
         self.parameters_list = list(self.tgp.parameters())
         self.dlogp_clamp = 10
         self.cycle = cycle
         self.pot = pot
-        self.rand_pert = rand_pert
         self.pbatch = 1.0 if pbatch is False or pbatch is True else pbatch
         self.eg2 = zero
 
@@ -143,11 +142,7 @@ class TgLearning:
                                      for p in self.parameters_list], dim=1)
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
-                if self.rand_pert:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc) \
-                        * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
-                else:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc)
+                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
@@ -168,13 +163,8 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                if self.rand_pert:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
-                                                      eg2=self.eg2, mcmc=mcmc) * (1 + 0.01 * torch.randn(dlogp.shape,
-                                                                                              device=dlogp.device))
-                else:
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
-                                                      eg2=self.eg2, mcmc=mcmc)
+                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                                                  eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
@@ -257,11 +247,7 @@ class TgLearning:
                                         for p in self.parameters_list], dim=1)
                     dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
                     annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                    if self.rand_pert:
-                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd, mcmc=False) \
-                        * (1 + 0.01 * torch.randn(dlogp.shape, device=dlogp.device))
-                    else:
-                        d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd, mcmc=False)
+                    d = self.svgd_direction(x, dlogp, sigma=sigma[i], annealing=annealing_svgd, mcmc=False)
                     for j, p in enumerate([p for p in self.parameters_list]):
                         p.grad.data = (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
                     self.tgp.clamp_grad()
