@@ -224,7 +224,7 @@ class TgLearning:
 
     def execute_gsvgd(self, niters, update_loss=10):
         """
-        Executes the Gibbs SVGD algorithm.
+        Executes the SVGD algorithm.
 
         :param niters: an int, the algorithm's number of iterations.
         :param update_loss: an int, the number of iterations to wait to update the loss value's progress bar, defaults
@@ -296,13 +296,13 @@ class TgLearning:
                 'g{}'.format(rgroup)].data.clone().detach().cpu().numpy()
         return review_dict
 
-    def plotKS(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
+    def plotKSCDF(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
         """
         Plot the CDF of both samples with their KS_statistic
 
         :param theorical: a dict, the theorical sample for each prior and group
         :param review_dict: a dict, contains the sample each nreview iterations
-        :param ncols: an int, the plot's number of columns, defaults to 3.
+        :param ncols: an int, the plot's number of columns, defaults to 2
         :param rprior: an int, prior to review
         :param rgroup: an int, group to review
         """
@@ -355,6 +355,52 @@ class TgLearning:
 
         # Mostrar el gráfico
         plt.show()
+
+    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0, rgroup: int = 0, showplot: bool=True):
+        """
+        Plot evolution of KS_statistic
+
+        :param theorical: a dict, the theorical sample for each prior and group
+        :param review_dict: a dict, contains the sample each nreview iterations
+        :param rprior: an int, prior to review
+        :param rgroup: an int, group to review
+        :param showplot: a bool, if it's true the plot show
+        """
+        theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
+        keys = list(review_dict.keys())
+        ks_statistic = []
+        # Numpys de datos
+        for i in range(len(review_dict.keys())):
+            sample = np.sort(review_dict['r{}'.format(i)])
+            theo = np.sort(theo)
+
+            data1 = theo
+            data2 = sample
+
+            # Concatenar los datos sin ordenar
+            data_all = np.concatenate([data1, data2])
+
+            # CDF: Cumulative distribution function
+            # Calcular la CDF empírica normalizada para data1
+            cdf1 = np.searchsorted(data1, data_all, side='right') / data1.size
+
+            # Calcular la CDF empírica normalizada para data2
+            cdf2 = np.searchsorted(data2, data_all, side='right') / data2.size
+
+            # Calcular la estadística KS
+            ks_statistic.append(np.abs(cdf1 - cdf2).max())
+
+        # Crear el gráfico
+        plt.figure(figsize=(15, 7))
+        plt.plot(ks_statistic, 'go', ms=8, alpha=0.7)
+        # plt.xticks(range(len(review_dict.keys())), range(len(review_dict.keys())))
+        plt.ylabel('KS_statistic')
+        plt.xlabel('nreview')
+        plt.title('KS evolution for ' + 'prior{} '.format(rprior) + 'group{}'.format(rgroup))
+        plt.ylim([0, 1])
+        if showplot:
+            plt.show()
+        return ks_statistic
 
     def append(self):
         pass
@@ -721,4 +767,5 @@ class TgLearning:
                 desc = 'psvgd | batch: {0:.2f}% | iters: [{1}, {2}) | logp: {3:.3f} ± {4:.3f} |'
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
+
 
