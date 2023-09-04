@@ -168,8 +168,130 @@ class TgLearning:
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
-                #self.optimizer.step()
+                # self.optimizer.step()
                 self.tgp.clamp()
+            self.append()
+            if t % update_loss == 0:
+                self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
+                logp = self.tgp.logp()
+                logp_median = logp.median().item()
+                logp_std = (logp - logp_median).abs().median().item()
+                desc = 'svgd | batch: {0:.2f}% | iters: [{1}, {2}) | logp: {3:.3f} ± {4:.3f} |'
+                bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
+                                                    logp_median, logp_std))
+
+    def execute_gbsvgd(self, niters, update_loss=10, drop_niters=0, reset=True, mcmc: bool = True, gibbs: bool = True):
+        """
+                Executes the SVGD algorithm.
+
+                :param niters: an int, the number of iterations for the algorithm.
+                :param update_loss: an int, the number of iterations to wait to update the loss value next to the progress bar.
+                :param drop_niters: an int, the number of initial additional non-appended iterations.
+                :param reset: a bool, if it's true reset eg2 to zero
+                :param mcmc: a bool, if it's true run mcmc in the training
+                """
+
+        bar = tqdm(range(niters), ncols=950)
+        update_loss -= 1
+        end = self.niters + niters
+        logp = self.tgp.logp()
+        no_grad = torch.no_grad()
+        if reset:
+            self.eg2 = zero
+        with no_grad:
+            if gibbs:
+                sigma = {}
+                for name, prior in self.priors_dict.items():
+                    sigma[name] = []
+                    for n, dist in prior.d.items():
+                        sigma[name].append((dist.high - dist.low))
+                    sigma[name] = torch.stack(sigma[name])
+            else:
+                sigma = []
+                for name, prior in self.priors_dict.items():
+                    for n, dist in prior.d.items():
+                        sigma.append(dist.high - dist.low)
+                sigma = torch.stack(sigma)
+            epoch = int(niters * self.cycle)
+        for t in range(drop_niters):
+            logp = self.tgp.logp(index=self.index_batch)
+            logp_nan = torch.isfinite(logp)
+            loss = -logp[logp_nan].sum()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward(retain_graph=True)
+            with no_grad:
+                if gibbs:
+                    for i, (name, prior) in enumerate(self.priors_dict.items()):
+
+                        x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
+                                         for p in prior.p.values()], dim=1)
+                        dlogp = torch.stack(
+                            [p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
+                             for p in prior.p.values()], dim=1)
+                        dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
+
+                        self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma[name], annealing=1, alpha=10,
+                                                          eg2=self.eg2, mcmc=mcmc)
+                        for j, p in enumerate([p for p in prior.p.values()]):
+                            p.data -= (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
+                        self.tgp.clamp_grad()
+                        # self.optimizer.step()
+                        self.tgp.clamp()
+                else:
+                    x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
+                                     for p in self.parameters_list], dim=1)
+                    dlogp = torch.stack([p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
+                                         for p in self.parameters_list], dim=1)
+                    dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
+
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2,
+                                                      mcmc=mcmc)
+                    for i, p in enumerate([p for p in self.parameters_list]):
+                        p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
+                    self.tgp.clamp_grad()
+                    # self.optimizer.step()
+                    self.tgp.clamp()
+        self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
+        for t in bar:
+            logp = self.tgp.logp(index=self.index_batch)
+            logp_nan = torch.isfinite(logp)
+            loss = -logp[logp_nan].sum()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward(retain_graph=True)
+            with no_grad:
+                if gibbs:
+                    for i, (name, prior) in enumerate(self.priors_dict.items()):
+                        x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
+                                         for p in prior.p.values()], dim=1)
+                        dlogp = torch.stack(
+                            [p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
+                             for p in prior.p.values()], dim=1)
+                        dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
+
+                        annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
+                        self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma[name], annealing=annealing_svgd,
+                                                          alpha=10,
+                                                          eg2=self.eg2, mcmc=mcmc)
+                        for j, p in enumerate([p for p in prior.p.values()]):
+                            p.data -= (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
+                        self.tgp.clamp_grad()
+                        # self.optimizer.step()
+                        self.tgp.clamp()
+                else:
+                    x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
+                                     for p in self.parameters_list], dim=1)
+                    dlogp = torch.stack([p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
+                                         for p in self.parameters_list], dim=1)
+                    dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
+
+                    annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                                                      eg2=self.eg2, mcmc=mcmc)
+                    for i, p in enumerate([p for p in self.parameters_list]):
+                        p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
+                    self.tgp.clamp_grad()
+                    # self.optimizer.step()
+                    self.tgp.clamp()
             self.append()
             if t % update_loss == 0:
                 self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
@@ -262,7 +384,8 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-    def review(self, niters: int = 100, nreview: int = 1, rprior: int = 0, rgroup: int = 0, mcmc: bool = True):
+    def review(self, niters: int = 100, nreview: int = 1, rprior: int = 0, rgroup: int = 0, mcmc: bool = True,
+               gibbs: bool = True):
         """
         Save a dictionary with nreview samples
 
@@ -276,8 +399,9 @@ class TgLearning:
 
         review_dict = {}
         self.eg2 = zero
+
         for k in range(int(nreview)):
-            self.execute_svgd(int(np.ceil(niters / nreview)), mcmc=mcmc, reset=False)
+            self.execute_gbsvgd(int(np.ceil(niters / nreview)), mcmc=mcmc, reset=False, gibbs=gibbs)
             review_dict['r{}'.format(k)] = self.priors_dict['prior{}'.format(rprior)].p[
                 'g{}'.format(rgroup)].data.clone().detach().cpu().numpy()
         return review_dict
