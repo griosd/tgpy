@@ -384,26 +384,31 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-    def review(self, niters: int = 100, nreview: int = 1, rprior: int = 0, rgroup: int = 0, mcmc: bool = True,
+    def review(self, niters: int = 100, nreview: int = 1, nprior: int = 0, ngroup: int = 0, mcmc: bool = True,
                gibbs: bool = True):
         """
         Save a dictionary with nreview samples
 
         :param niters: an int, the algorithm's number of iterations.
-        :param nreview: un int, number of round in which review the training
-        :param rprior: un int, prior to review
-        :param rgroup: un int, group to review
+        :param nreview: an int, number of round in which review the training
+        :param nprior: an int, number of prior
+        :param ngroup: an int, number of group
         :param mcmc: a bool, if it's true run mcmc in the training
         :return: a dict, value of sample for each prior and group
         """
 
         review_dict = {}
+        prior_dict = {}
         self.eg2 = zero
 
         for k in range(int(nreview)):
             self.execute_gbsvgd(int(np.ceil(niters / nreview)), mcmc=mcmc, reset=False, gibbs=gibbs)
-            review_dict['r{}'.format(k)] = self.priors_dict['prior{}'.format(rprior)].p[
-                'g{}'.format(rgroup)].data.clone().detach().cpu().numpy()
+            prior_dict = {}
+            for prior in range(nprior):
+                for group in range(ngroup):
+                    prior_dict[('prior{}'.format(prior), 'g{}'.format(group))] = self.priors_dict['prior{}'.format(
+                        prior)].p['g{}'.format(group)].data.clone().detach().cpu().numpy()
+            review_dict['r{}'.format(k)] = prior_dict
         return review_dict
 
     def plotKSCDF(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0):
@@ -420,10 +425,10 @@ class TgLearning:
         keys = list(review_dict.keys())
         nrows = int(np.ceil(len(review_dict.keys()) / ncols))
         fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
-
         # Numpys de datos
-        for i in range(len(review_dict.keys())):
-            sample = np.sort(review_dict['r{}'.format(i)])
+        for i, key in enumerate(review_dict.keys()):
+
+            sample = np.sort(review_dict[key]['prior{}'.format(rprior), 'g{}'.format(rgroup)])
             theo = np.sort(theo)
 
             data1 = theo
@@ -466,7 +471,8 @@ class TgLearning:
         # Mostrar el gráfico
         plt.show()
 
-    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0, rgroup: int = 0, showplot: bool=True):
+    def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0,
+                        rgroup: int = 0, showplot: bool = True):
         """
         Plot evolution of KS_statistic
 
@@ -480,8 +486,8 @@ class TgLearning:
         keys = list(review_dict.keys())
         ks_statistic = []
         # Numpys de datos
-        for i in range(len(review_dict.keys())):
-            sample = np.sort(review_dict['r{}'.format(i)])
+        for i, key in enumerate(review_dict.keys()):
+            sample = np.sort(review_dict[key]['prior{}'.format(rprior), 'g{}'.format(rgroup)])
             theo = np.sort(theo)
 
             data1 = theo
@@ -501,14 +507,13 @@ class TgLearning:
             ks_statistic.append(np.abs(cdf1 - cdf2).max())
 
         # Crear el gráfico
-        plt.figure(figsize=(15, 7))
-        plt.plot(ks_statistic, 'go', ms=8, alpha=0.7)
-        # plt.xticks(range(len(review_dict.keys())), range(len(review_dict.keys())))
-        plt.ylabel('KS_statistic')
-        plt.xlabel('nreview')
-        plt.title('KS evolution for ' + 'prior{} '.format(rprior) + 'group{}'.format(rgroup))
-        plt.ylim([0, 1])
         if showplot:
+            plt.figure(figsize=(15, 7))
+            plt.plot(ks_statistic, 'o-', ms=8, alpha=0.7)
+            plt.ylabel('KS_statistic')
+            plt.xlabel('nreview')
+            plt.title('KS evolution for ' + 'prior{} '.format(rprior) + 'group{}'.format(rgroup))
+            plt.ylim([0, 1])
             plt.show()
         return ks_statistic
 
