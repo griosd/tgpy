@@ -297,7 +297,11 @@ class TP(TgRandomField):
     def obs_h(self):
         return self.inverse(self.obs_x, self.obs_y, noise=True)
 
-    def prior(self, x, nsamples=1, noise=False):
+    def prior(self, inputs, nsamples=1, noise=False):
+        if len(inputs.shape) == 1:
+            x = self.dt.tensor_inputs(inputs)
+        else:
+            x = self.dt.original_to_tensor_inputs(inputs)
         return self.forward(x, self.generator.prior(x, nsamples=nsamples), noise=noise)
 
     def posterior(self, x, nsamples=1, obs_x=None, obs_y=None, noise=False, noise_cross=False):
@@ -422,7 +426,8 @@ class TGP(TP):
     def plot_predict(self,
                      title='GP',
                      x_label='$x$',
-                     y_label='$y=f(x) + \eta$', nsamples=100,
+                     y_label='$y=f(x) + \eta$',
+                     nsamples=100,
                      noise=False,
                      quantile=0.1,
                      valid_index=None,
@@ -444,7 +449,7 @@ class TGP(TP):
         :param title: a string, determines the title of the figure, defaults to 'GP'.
         :param x_label: a string, determines the x label of the figure, defaults to '$x$'.
         :param y_label: a string, determines the x label of the figure, defaults to $y=f(x) + \eta$'.
-        :param nsamples: an int, number of samples, default to 100.
+        :param nsamples: an int, number of samples, default to 100.- scaled to 100
         :param noise: a bool, if True the samples will include noise, defaults to False.
         :param quantile: a float, between [0, 1] quantile to create confidence interval, defaults to 0.1.
         :param valid_index: a numpy.ndarray, the index of values for validation, defaults to None.
