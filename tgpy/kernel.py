@@ -206,8 +206,9 @@ class SM(TgKernel):
 
     def forward(self, x1, x2=None):
         relevance = self.relevance()[:, None, :]
-        exp_term = (-(self.metric(x1, x2) / relevance).pow(2)).exp()
-        cos_term = torch.cos((2 * math.pi * self.metric(x1, x2)) / self.period()[:, :, None])
+        diff = self.metric(x1, x2)
+        exp_term = (-(diff / relevance).pow(2)).exp()
+        cos_term = torch.cos((2 * math.pi * diff) / self.period()[:, :, None])
         return self.var()[:, :, None] * exp_term * cos_term
 
 
