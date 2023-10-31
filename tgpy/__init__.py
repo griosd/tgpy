@@ -7,5 +7,6 @@ from .prior import *
 from .learning import *
 from .location import *
 from .mapping import *
+from .modules import *
 from .random import *
 from .cdf import *

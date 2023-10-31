@@ -21,3 +21,30 @@ class Constant(nn.Module):
 
     def forward(self):
         return self.tensor
+
+class Scaling(nn.Module):
+    """
+    This class implements the scaling of an NgModule by a tensor.
+
+    :param m: an NgModule.
+    :param scale: an tensor, the scale.
+    :param args: arguments to be passed to the class NgModule.
+    :param kwargs: keyword arguments to be passed to the class NgModule.
+    """
+    def __init__(self, module, scale, *args, **kwargs):
+        # noinspection PyArgumentList
+        super(Scaling, self).__init__(*args, **kwargs)
+        self.module = module
+        self.scale = scale
+
+    def forward(self, *args, **kwargs):
+        """
+        Scales the stored NgModule or Addition objects.
+
+        :param args: arguments to be passed to the NgModule class.
+        :param kwargs: keyword arguments to be passed to the NgModule class.
+
+        :return: the scaled version of the stored objects.
+        """
+        # noinspection PyArgumentList
+        return self.module.forward(*args, **kwargs).mul(self.scale)

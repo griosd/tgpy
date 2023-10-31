@@ -17,7 +17,7 @@ class TgLearning:
         self.tgp = tgp
         self.optimizer = optim.Adam(self.tgp.parameters(), lr=lr)
         self.parameters_list = list(self.tgp.parameters())
-        self.dlogp_clamp = 10
+        self.dlogp_clamp = 1
         self.cycle = cycle
         self.pot = pot
         self.pbatch = 1.0 if pbatch is False or pbatch is True else pbatch
@@ -126,7 +126,7 @@ class TgLearning:
             for name, prior in self.priors_dict.items():
                 for n, dist in prior.d.items():
                     sigma.append(dist.high - dist.low)
-            sigma = torch.stack(sigma)
+            sigma = torch.stack(sigma) * 0 + 1
             epoch = int(niters * self.cycle)
         for t in range(drop_niters):
             logp = self.tgp.logp(index=self.index_batch)
@@ -163,7 +163,7 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=0.001,
                                                   eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
@@ -287,6 +287,7 @@ class TgLearning:
                     annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
                     self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
                                                       eg2=self.eg2, mcmc=mcmc)
+
                     for i, p in enumerate([p for p in self.parameters_list]):
                         p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
                     self.tgp.clamp_grad()

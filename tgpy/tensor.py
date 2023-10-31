@@ -57,10 +57,16 @@ class DataTensor:
             self.shift_outputs = self.original_outputs().apply(stat)
 
     def calculate_scale(self, inputs=True, outputs=True, quantile=0.9):
-        if inputs:
-            self.scale_inputs = self.df_inputs().quantile(quantile)
-        if outputs:
-            self.scale_outputs = self.df_outputs().quantile(quantile)
+        if quantile is False:
+            if inputs:
+                self.scale_inputs = self.df_inputs().quantile(quantile) * 0 + 1
+            if outputs:
+                self.scale_outputs = self.df_outputs().quantile(quantile) * 0 + 1
+        else:
+            if inputs:
+                self.scale_inputs = self.df_inputs().quantile(quantile)
+            if outputs:
+                self.scale_outputs = self.df_outputs().quantile(quantile)
 
     def original(self, index=Ellipsis):
         return self.df[self.inputs + self.outputs].loc[index]
@@ -143,9 +149,10 @@ def to_tensor(array, device=None):
 
     :return: a torch tensor.
     """
-    if isinstance(array, np.array) or isinstance(array, list):
+    device = _device if device is None else device
+    if isinstance(array, np.ndarray) or isinstance(array, list):
         return torch.Tensor(array, device=device)
-    elif isinstance(array, float):
+    elif isinstance(array, float) or isinstance(array, int):
         return torch.ones(1, device=device) * array
     elif isinstance(array, torch.Tensor):
         return array
