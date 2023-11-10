@@ -314,7 +314,8 @@ class BetaLocation(dist.TransformedDistribution):
         else:
             return 1.0
 
-    def plot(self, nspace=100, ax=None, mean=True, median=True, name=None, return_ylim=False, *args, **kwargs):
+    def plot(self, nspace=100, ax=None, mean=True, median=True, name=None, return_ylim=False, fill=True,
+             *args, **kwargs):
         """
         Plots the Beta Location distribution.
 
@@ -336,7 +337,10 @@ class BetaLocation(dist.TransformedDistribution):
         density_max = density[np.isfinite(density)].max()
         density[~np.isfinite(density)] = density_max
         space = to_numpy(space)
-        ax.fill_between(to_numpy(space), 0, density, *args, **kwargs)
+        if fill:
+            ax.fill_between(to_numpy(space), 0, density, *args, **kwargs)
+        else:
+            ax.plot(to_numpy(space), density, *args, **kwargs)
         ylim = np.percentile(density, 98)
         density_max = density.max()
         ylim = density_max * 1.02 if density_max / ylim < 1.5 else ylim * 1.02
@@ -349,8 +353,12 @@ class BetaLocation(dist.TransformedDistribution):
         if name:
             ax.annotate(name, xy=(self.low.item(), ylim * 0.85))
         dx_lim = self.scale.item() * 5e-3
-        ax.set_xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
-        ax.set_ylim([0, ylim * 1.1])
+        if ax is plt:
+            ax.xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
+            ax.ylim([0, ylim * 1.1])
+        else:
+            ax.set_xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
+            ax.set_ylim([0, ylim * 1.1])
         if return_ylim:
             return ylim
 
