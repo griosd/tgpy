@@ -22,7 +22,8 @@ class TgLearning:
         self.pot = pot
         self.pbatch = 1.0 if pbatch is False or pbatch is True else pbatch
         self.eg2 = zero
-
+        self.A = None
+        self.T = None
         self.index = index
         if self.index is None and self.tgp.obs_x is not None:
             self.index = torch.arange(len(self.tgp.obs_x), device=_device)
@@ -104,7 +105,7 @@ class TgLearning:
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
 
-    def execute_svgd(self, niters, update_loss=10, drop_niters=0, reset=True, mcmc: bool = False):
+    def execute_svgd(self, niters, update_loss=10, drop_niters=0, reset=True, mcmc: bool = True):
         """
         Executes the SVGD algorithm.
 
@@ -163,7 +164,7 @@ class TgLearning:
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
 
                 annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=0.001,
+                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
                                                   eg2=self.eg2, mcmc=mcmc)
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
@@ -386,7 +387,7 @@ class TgLearning:
                                                     logp_median, logp_std))
 
     def review(self, niters: int = 100, nreview: int = 1, nprior: int = 0, ngroup: int = 0, mcmc: bool = True,
-               gibbs: bool = True, method='svgd'):
+               grassman: bool = True, grad_method: str ='stochastic'):
         """
         Save a dictionary with nreview samples
 
@@ -402,12 +403,8 @@ class TgLearning:
         self.eg2 = zero
 
         for k in range(int(nreview)):
-            if method == 'Mega':
-                self.execute_Megasvgd(int(np.ceil(niters / nreview)), reset=False)
-            elif method == 'gsvgd':
-                self.execute_psvgd(int(np.ceil(niters / nreview)), grad_method='stochastic')
-            elif method == 'svgd':
-                self.execute_svgd(int(np.ceil(niters / nreview)), mcmc=True, reset=False)
+            self.execute_Megasvgd(niters=int(np.ceil(niters / nreview)), reset=False, mcmc=mcmc, gsvgd=grassman,
+                                  grad_method=grad_method, A=self.A, T=self.T)
 
             prior_dict = {}
             for prior in range(nprior):
@@ -418,7 +415,7 @@ class TgLearning:
         return review_dict
 
     def plotKSCDF(self, theorical: dict, review_dict: dict, ncols: int = 2, rprior: int = 0, rgroup: int = 0,
-                  title: str='metodo'):
+                  title: str = 'metodo'):
         """
         Plot the CDF of both samples with their KS_statistic
 
@@ -432,6 +429,9 @@ class TgLearning:
         keys = list(review_dict.keys())
         nrows = int(np.ceil(len(review_dict.keys()) / ncols))
         fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+        fig.suptitle(title, fontsize=16)
+        plt.tight_layout()
+
         # Numpys de datos
         for i, key in enumerate(review_dict.keys()):
             sample = np.sort(review_dict[key]['prior{}'.format(rprior), 'g{}'.format(rgroup)])
@@ -475,7 +475,6 @@ class TgLearning:
                      verticalalignment='top', bbox=dict(facecolor='white', alpha=0.5))  # No se si es necesario
 
         # Mostrar el gráfico
-        fig.suptitle(title, fontsize=16)
         plt.show()
 
     def plotKSEvolution(self, theorical: dict, review_dict: dict, rprior: int = 0,
@@ -608,7 +607,6 @@ class TgLearning:
         Calculate the projection operator Id - AA^T.
 
         :param A: a torch.tensor, the projection matrix.
-
         :return: a torch.tensor, the projection operator Id - AA^T.
         """
         d = A.shape[0]
@@ -767,6 +765,7 @@ class TgLearning:
         :param N: an int, batch size in the batch stochastic gradient calculation.
         :param kernel: a tgpy.kernel, the kernel to be used, if is None SE will be used.
         """
+
         bar = tqdm(range(niters), ncols=950)
         update_loss -= 1
         end = self.niters + niters
@@ -792,7 +791,6 @@ class TgLearning:
             Ttresh = 1e-4 * A.shape[0]
 
         A = A.to(sigma.device)
-        print(A.shape)
         if kernel is None:
             var = TgPrior('var_se', ['dummy_input'], dim=1)
             relevance = TgPrior('relevance', ['dummy_input'], dim=1)
@@ -911,8 +909,7 @@ class TgLearning:
                                                     logp_median, logp_std))
 
     def gsvgd_update_projection(self, params: torch.Tensor, dlogp: torch.Tensor, A: torch.Tensor, sigma: torch.Tensor,
-                                T,
-                                delta, grad_method='stochastic', niter=20, N=30):
+                                T, delta, grad_method='stochastic', niter=None, N=None):
         """
         Calculate the projection that minimize logp.
 
@@ -922,23 +919,30 @@ class TgLearning:
         :param sigma: a torch.tensor, the relevance parameter of kernel.
         :param T: a float, the temperature.
         :param delta: a float, step size in Euler-Maruyama discretization of the projection dynamic.
-        :param kernel: a tgpy.kernel, the kernel to be used.
-        :param grad_method: a string, the method used to calculate the gradient of alpha([A]). Can take the values approx, stochastic, or exact.
+        :param grad_method: a string, the method used to calculate the gradient of alpha([A]). Can take the values
+        stochastic, or exact.
         :param niter: an int, number of iterations in the batch stochastic gradient calculation.
         :param N: an int, batch size in the batch stochastic gradient calculation.
 
-        :return: a torch.tensor, the matrix projection that minimizes the loss. If grad_method is exact, the real value of grad(alpha([A])) is used,
-            if grad_method is approx, the method approximate numerically its value and if grad_method is stochastic, the gradient is approximated
-            stochastically.
+        :return: a torch.tensor, the matrix projection that minimizes the loss. If grad_method is exact, the real value
+        of grad(alpha([A])) is used and if grad_method is stochastic, the gradient is approximated stochastically.
         """
+        # Set N and niter for stochastic method
+        if N is None:
+            N = int(0.05 * params.shape[0])
+            N = min(max(N, 1), 500)
+        if niter is None:
+            niter = 1
+
         if grad_method == 'stochastic':
             dalpha = self.gstochastic_grad_alpha(A=A, params=params, dlogp=dlogp, sigma=sigma, niter=niter, N=N)
         elif grad_method == 'exact':
             dalpha = self.ggrad_alpha(A=A, x=params, dlogp=dlogp, sigma=sigma)
         else:
             raise ValueError(
-                'grad_method must be in [stochastic/exact/approx]. grad_method selected {}'.format(grad_method))
+                'grad_method must be in [stochastic/exact]. grad_method selected {}'.format(grad_method))
 
+        # Calculate delta for singular value descomposition.
         zhi = torch.normal(mean=torch.zeros_like(A), std=torch.ones_like(A))
         Delta = delta * self.projection_A(A).mm(dalpha)
         Delta += (2 * delta * T) ** 0.5 * self.projection_A(A).mm(zhi)
@@ -951,15 +955,17 @@ class TgLearning:
         Calculate the gradient of alpha([A]).
 
         :param A: a torch.tensor, the projection matrix.
-        :param params: a torch.tensor, parameters of the model.
+        :param x: a torch.tensor, parameters of the model.
         :param dlogp: a torch.tensor, the derivative of logp w.r. the parameters of models.
-        :param kernel: a tgpy.kernel, the kernel to be used.
-
+        :param sigma: a torch.tensor, the sigma of Gaussian kernel.
         :return: a torch.tensor, the exact value of the gradient of alpha([A]) evaluated at A.
         """
         n_samples = x.shape[0]
+        # Projection of params in A
         xA1 = (x.mm(A))[None, :, :]
         xA2 = (x.mm(A))[:, None, :]
+
+        # Kernel operator
         d = (xA2 - xA1) / (sigma @ A)
         dists = d.pow(2).sum(axis=-1)
         h = 0.5 * dists.median().item() / log(n_samples + 1)
@@ -968,23 +974,22 @@ class TgLearning:
 
         delta_pq = (dlogp[:, None, :] - dlogp[None, :, :])
 
-        term1 = (k * (delta_pq[:, :, :, None] * delta_pq[:, :, None, :]).sum(axis=-1).mean(axis=-1))[:, :, None,
-                None] * A[None, None, :, :]
+        # Calculate of gradient
+        term1 = ((k * (delta_pq[:, :, :, None] * delta_pq[:, :, None, :]).sum(axis=-1).mean(axis=-1))[:, :, None, None]
+                 * A[None, None, :, :])
         term1 = term1.mean(axis=(0, 1))
 
-        term2 = ((delta_pq[:, :, :, None] * A[None, None, :, :]).sum(axis=-2))[:, :, :, None] * ((delta_pq[:, :, :,
-                                                                                                  None] * A[None, None,
-                                                                                                          :, :]).sum(
-            axis=-2))[:, :, None, :]
+        term2 = (((delta_pq[:, :, :, None] * A[None, None, :, :]).sum(axis=-2))[:, :, :, None] *
+                 ((delta_pq[:, :, :,None] * A[None, None, :, :]).sum(axis=-2))[:, :, None, :])
         term2 = term2.sum(axis=-1).mean(axis=-1)
-        term2 = (k * (x[None, :, :] - x[:, None, :]).pow(2).sum(axis=-1) * term2)[:, :, None, None] * A[None, None, :,
-                                                                                                      :]
+        term2 = ((k * (x[None, :, :] - x[:, None, :]).pow(2).sum(axis=-1) * term2)[:, :, None, None] *
+                 A[None, None, :, :])
         term2 = term2.mean(axis=(0, 1))
 
         return 2 * (term1 + term2)
 
     def gstochastic_grad_alpha(self, A: torch.Tensor, params: torch.Tensor, dlogp: torch.Tensor, sigma: torch.Tensor,
-                               niter: int=30, N: int=20):
+                               niter: int = 30, N: int = 20):
 
         """
         Approximate the gradient of alpha([A]) stochastically.
@@ -992,21 +997,25 @@ class TgLearning:
         :param A: a torch.tensor, the projection matrix.
         :param params: a torch.tensor, parameters of the model.
         :param dlogp: a torch.tensor, the derivative of logp w.r. the parameters of models.
+        :param sigma: a torch.tensor, the sigma of Gaussian kernel.
         :param niter: an int, number of iterations in the stochastical approximation.
         :param N: an int, size of the subsample for the stochastical approximation.
-        :param kernel: a tgpy.kernel, the kernel to be used.
 
         :return: a torch.tensor, the approximation of the gradient of alpha([A]) evaluated at A.
         """
         grad = torch.zeros_like(A)
         for t in range(niter):
+            # Stochastic sample of params and logp
             sample_idx = np.random.choice(params.shape[0], N)
             x_t = params[sample_idx, :]
             dlogp_t = dlogp[sample_idx, :]
 
+            # Projection of params in A
             n_samples = params.shape[0]
             xA1 = (x_t.mm(A))[None, :, :]
             xA2 = (x_t.mm(A))[:, None, :]
+
+            # Kernel operator
             d = (xA2 - xA1) / (sigma @ A)
             dists = d.pow(2).sum(axis=-1)
             h = 0.5 * dists.median().item() / log(n_samples + 1)
@@ -1015,19 +1024,16 @@ class TgLearning:
 
             delta_pq = (dlogp_t[:, None, :] - dlogp_t[None, :, :])
 
-            term1 = (k * (delta_pq[:, :, :, None] * delta_pq[:, :, None, :]).sum(axis=-1).mean(axis=-1))[:, :, None,
-                    None] * A[None, None, :, :]
+            # Calculate of gradient
+            term1 = ((k * (delta_pq[:, :, :, None] * delta_pq[:, :, None, :]).sum(axis=-1).
+                      mean(axis=-1))[:, :, None, None] * A[None, None, :, :])
             term1 = term1.mean(axis=(0, 1))
 
-            term2 = ((delta_pq[:, :, :, None] * A[None, None, :, :]).sum(axis=-2))[:, :, :, None] * ((delta_pq[:, :, :,
-                                                                                                      None] * A[None,
-                                                                                                              None, :,
-                                                                                                              :]).sum(
-                axis=-2))[:, :, None, :]
+            term2 = (((delta_pq[:, :, :, None] * A[None, None, :, :]).sum(axis=-2))[:, :, :, None] *
+                     ((delta_pq[:, :, :, None] * A[None, None, :, :]).sum(axis=-2))[:, :, None, :])
             term2 = term2.sum(axis=-1).mean(axis=-1)
-            term2 = (k * (x_t[None, :, :] - x_t[:, None, :]).pow(2).sum(axis=-1) * term2)[:, :, None, None] * A[None,
-                                                                                                              None, :,
-                                                                                                              :]
+            term2 = ((k * (x_t[None, :, :] - x_t[:, None, :]).pow(2).sum(axis=-1) * term2)[:, :, None, None] *
+                     A[None, None, :, :])
             term2 = term2.mean(axis=(0, 1))
 
             grad += 2 * (term1 + term2) / niter
@@ -1036,23 +1042,22 @@ class TgLearning:
 
     @staticmethod
     def Megasvgd_direction(params: torch.Tensor, dlogp: torch.Tensor, sigma: torch.Tensor,
-                           annealing: torch.Tensor, projection: torch.Tensor=None,
+                           annealing: torch.Tensor, projection: torch.Tensor = None,
                            alpha: float = 1, eg2: torch.Tensor = 0, beta: float = 0.9, mcmc: bool = True,
-                           momentum: bool = True, gsvgd:bool=False):
+                           momentum: bool = True, gsvgd: bool = False):
         """
-        Calculate the kernel Stein direction with Gaussian kernel.
+        Calculate the kernel Stein direction.
 
         :param params: a torch.tensor, the parameters of models.
         :param dlogp: a torch.tensor, the derivative of logp w.r. the parameters of models.
         :param sigma: a torch.tensor, the sigma of Gaussian kernel.
         :param annealing: a float, the annealing ponderator.
-        :param kernel: a tgpy.kernel, the kernel to be used.
 
         :return: a torch.tensor, the kernel Stein direction-
         """
-        # Calculo del kernel
         n_samples = params.shape[0]
         if gsvgd:
+            # Kernel calculate
             xA1 = (params.mm(projection))[None, :, :]
             xA2 = (params.mm(projection))[:, None, :]
             d = (xA2 - xA1) / (sigma @ projection)
@@ -1062,18 +1067,21 @@ class TgLearning:
             k = torch.exp(- dists[:, :, None] / (2 * h)).squeeze()
             k_der = (-2 * k[:, :, None] * (xA1 - xA2)[None, None, :, :, :] /
                      ((2 * h) ** 0.5 * sigma @ projection).pow(2)).squeeze().reshape(n_samples, n_samples, -1)
-            # Regla de actualizacion
+
+            # Update rule
             ks = dlogp.matmul(projection.mm(projection.transpose(0, 1)).transpose(0, 1))
             ks = (ks[:, None, :] * k[:, :, None]).sum(axis=0)
             kd = k_der.matmul(projection.transpose(0, 1)).sum(axis=0)
         else:
+            # Kernel calculate
             d = (params[:, None, :] - params[None, :, :]) / sigma
             dists = d.pow(2).sum(axis=-1)
             h = 0.5 * dists.median().item() / log(n_samples + 1)
             h = h if h > 1e-3 else 1e-3
             k = torch.exp(- dists / (2 * h))
             k_der = d * k[:, :, None] / (sigma * h)
-            # Regla de actualizacion
+
+            # update rule
             ks = k.mm(dlogp)
             kd = k_der.sum(axis=0)
 
@@ -1083,34 +1091,39 @@ class TgLearning:
             if momentum:
                 eg2 = beta * eg2 + (1 - beta) * (df ** 2).sum()
                 alpha /= torch.sqrt(eg2)
-                return eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(
-                    torch.randn(dlogp.shape, device=L.device))
+                return (eg2, alpha * df + ((2 * alpha / n_samples) ** 0.5) *
+                        L.mm(torch.randn(dlogp.shape, device=L.device)))
             else:
+                # allows not to modify eg2 when it is not necessary in gsvgd
                 return alpha * df + ((2 * alpha / n_samples) ** 0.5) * L.mm(torch.randn(dlogp.shape, device=L.device))
         else:
             if momentum:
                 return None, df
             else:
+                # allows not to modify eg2 when it is not necessary in gsvgd
                 return df
 
-    def execute_Megasvgd(self, niters, delta=.01, A=None, Tmin=1e-4, Tmax=1e6, Ttresh=None, update_loss=10,
-                          grad_method='stochastic', niter_grad=20, N=30, reset: bool = True,
-                          mcmc:bool=False, gsvgd:bool =False):
+    def execute_Megasvgd(self, niters, delta=.01, A=None, Tmin=1e-4, Tmax=1e6, Ttresh=None, T=None, update_loss=10,
+                         grad_method='stochastic', niter_grad=None, N=None, reset: bool = True,
+                         mcmc: bool = False, gsvgd: bool = False):
         """
-        Executes the Projected SVGD algorithm.
+        Executes the selected method .
 
         :param niters: an int, the number of iterations for the algorithm.
         :param delta: a float, step size in Euler-Maruyama discretization of the projection dynamic.
         :param A: a torch.tensor, the initial projection matrix.
         :param Tmin: a float, the minimum value taken by the annealing temperature.
         :param Tmax: a float, the maximum value taken by the annealing temperature.
-        :param Ttresh: a float, the minimum difference between the particle-averaged magnitude necessary to keep the temperature.
+        :param Ttresh: a float, the minimum difference between the particle-averaged magnitude necessary to keep the
+        temperature.
         :param update_loss: an int, the number of iterations to wait to update the loss value next to the progress bar.
         :param drop_niters: an int, the number of initial additional non-appended iterations.
-        :param grad_methd: a string, the method used to calculate the gradient of alpha([A]). Can take the values approx, stochastic, or exact.
+        :param grad_method: a string, the method used to calculate the gradient of alpha([A]). Can take the values
+        stochastic, or exact.
         :param niter_grad: an int, number of iterations in the batch stochastic gradient calculation.
         :param N: an int, batch size in the batch stochastic gradient calculation.
         :param kernel: a tgpy.kernel, the kernel to be used, if is None SE will be used.
+        :param reset: a bool, if true, set eg2 to zero
         """
 
         bar = tqdm(range(niters), ncols=950)
@@ -1129,7 +1142,8 @@ class TgLearning:
             sigma = torch.stack(sigma)
             epoch = int(niters * self.cycle)
         if gsvgd:
-            T = Tmin
+            if T is None:
+                T = Tmin
             dn = len(sigma)
             if A is None:
                 A = torch.eye(dn)
@@ -1141,22 +1155,6 @@ class TgLearning:
             if Ttresh is None:
                 Ttresh = 1e-4 * A.shape[0]
             A = A.to(sigma.device)
-            print(A.shape)
-
-        #     with no_grad:
-        #         x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
-        #                          for p in self.parameters_list], dim=1)
-        #         dlogp = torch.stack([p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
-        #                              for p in self.parameters_list], dim=1)
-        #         dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
-        #
-        #         self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc)
-        #         for i, p in enumerate([p for p in self.parameters_list]):
-        #             p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
-        #         self.tgp.clamp_grad()
-        #         # self.optimizer.step()
-        #         self.tgp.clamp()
-        # self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
 
         for t in bar:
             logp = self.tgp.logp(index=self.index_batch)
@@ -1173,13 +1171,17 @@ class TgLearning:
                 annealing_gsvgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
 
                 if gsvgd:
+                    # Direction of GSVGD
                     self.eg2, d = self.Megasvgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd,
-                                                          projection=A[0],
-                                                          eg2=self.eg2, momentum=True, mcmc=mcmc, gsvgd=gsvgd)
+                                                          projection=A[0], eg2=self.eg2, momentum=True, mcmc=mcmc,
+                                                          gsvgd=gsvgd)
                     for k in range(1, A.shape[0]):
-                        d += self.Megasvgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd, projection=A[k],
-                                                     eg2=self.eg2, momentum=False, mcmc=mcmc, gsvgd=gsvgd)
+                        self.eg2, aux = self.Megasvgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd,
+                                                                projection=A[k], eg2=self.eg2, momentum=True, mcmc=mcmc,
+                                                                gsvgd=gsvgd)
+                        d += aux
                 else:
+                    # Direction of SVGD
                     self.eg2, d = self.Megasvgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd, alpha=10,
                                                           eg2=self.eg2, momentum=True, mcmc=mcmc, gsvgd=gsvgd)
                 for j, p in enumerate([p for p in self.parameters_list]):
@@ -1188,28 +1190,31 @@ class TgLearning:
                 # self.optimizer.step()
                 self.tgp.clamp()
                 if gsvgd:
+                    # Adapt temperature
                     dgamma = self.particle_avg_magnitude(d)
                     if max(dgamma - dgamma0, dgamma0 - dgamma) < Ttresh and T < Tmax:
                         T *= 10
                     dgamma = dgamma0
 
             if gsvgd:
+                # update projector according to the chosen gradient
                 if grad_method == 'exact':
                     if t == 0:
                         try:
                             with no_grad:
                                 for k in range(A.shape[0]):
                                     A[k] = self.gsvgd_update_projection(params=x, dlogp=dlogp, A=A[k], sigma=sigma, T=T,
-                                                                    delta=delta, grad_method=grad_method,
-                                                                    niter=niter_grad, N=N)
+                                                                        delta=delta, grad_method=grad_method,
+                                                                        niter=niter_grad, N=N)
                         except RuntimeError:
-                            print('Not enought memory for exact gradient method, changing to estochastic approximation.')
+                            print(
+                                'Not enought memory for exact gradient method, changing to estochastic approximation.')
                             grad_method = 'stochastic'
                             with no_grad:
                                 for k in range(A.shape[0]):
                                     A[k] = self.gsvgd_update_projection(params=x, dlogp=dlogp, A=A[k], sigma=sigma, T=T,
-                                                                    delta=delta, grad_method=grad_method,
-                                                                    niter=niter_grad, N=N)
+                                                                        delta=delta, grad_method=grad_method,
+                                                                        niter=niter_grad, N=N)
                     else:
                         with no_grad:
                             for k in range(A.shape[0]):
@@ -1220,8 +1225,8 @@ class TgLearning:
                     with no_grad:
                         for k in range(A.shape[0]):
                             A[k] = self.gsvgd_update_projection(params=x, dlogp=dlogp, A=A[k], sigma=sigma, T=T,
-                                                                    delta=delta, grad_method=grad_method,
-                                                                    niter=niter_grad, N=N)
+                                                                delta=delta, grad_method=grad_method,
+                                                                niter=niter_grad, N=N)
                 else:
                     raise ValueError(
                         'grad_method must be in [stochastic/exact/approx]. grad_method selected {}'.format(grad_method))
@@ -1236,5 +1241,3 @@ class TgLearning:
                 desc = 'psvgd | batch: {0:.2f}% | iters: [{1}, {2}) | logp: {3:.3f} ± {4:.3f} |'
                 bar.set_description_str(desc.format(100 * self.nbatch / max(1, self.nobs), self.niters, end,
                                                     logp_median, logp_std))
-
-
