@@ -396,3 +396,26 @@ def logp_beta_location_groups(r: torch.Tensor, value: torch.Tensor, low, scale, 
     value_inv = value.sub(low).div(scale)
     r.add_((torch.log(torch.stack([value_inv, t_one.sub(value_inv)], -1)).mul(concentration_1)).sum(-1).add(
         norm_const).sum((-1, -2)))
+
+
+class TgJointPrior(nn.Module):
+    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
+        super(TgJointPrior, self).__init__()
+        self.name = name
+        self.parameters = parameters
+        self.dim = dim
+        self.d = DictObj({p: BetaLocation(low=low, high=high, alpha=alpha, beta=beta, mean=mean, mode=mode)
+                          for p in parameters})
+        self.p = nn.ParameterDict({n: nn.Parameter(self.d[n].sample((self.dim,))) for n in parameters})
+        self.color = None
+
+    def forward(self, *args, **kwargs):
+        return torch.stack(tuple(self.p.values()), dim=1)
+
+    def logp(self):
+        return sum(self.d[p].log_prob(self.p[p]) for p in self.parameters)
+
+
+
+
+
