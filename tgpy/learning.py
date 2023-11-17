@@ -64,29 +64,11 @@ class TgLearning:
     def niters(self):
         return 0
 
-    def execute_sgd(self, niters, update_loss=10, drop_niters=10):
+    def execute_sgd(self, niters, update_loss=10):
         bar = tqdm(range(niters), ncols=950)
         update_loss -= 1
         end = self.niters + niters
         _ = self.tgp.logp()
-        no_grad = torch.no_grad()
-        with no_grad:
-            sigma = []
-            for name, prior in self.priors_dict.items():
-                for n, dist in prior.d.items():
-                    sigma.append(dist.high - dist.low)
-            sigma = torch.stack(sigma)
-            epoch = int(niters * self.cycle)
-        for t in range(drop_niters):
-            logp = self.tgp.logp(index=self.index_batch)
-            logp_nan = torch.isfinite(logp)
-            loss = -logp[logp_nan].nanmean()
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.tgp.clamp_grad()
-            self.optimizer.step()
-            self.tgp.clamp()
-
         for t in bar:
             logp = self.tgp.logp(index=self.index_batch)
             logp_nan = torch.isfinite(logp)
@@ -122,34 +104,6 @@ class TgLearning:
         no_grad = torch.no_grad()
         if reset:
             self.eg2 = zero
-        with no_grad:
-            sigma = []
-            for name, prior in self.priors_dict.items():
-                for n, dist in prior.d.items():
-                    sigma.append(dist.high - dist.low)
-            sigma = torch.stack(sigma) * 0 + 1
-            epoch = int(niters * self.cycle)
-        for t in range(drop_niters):
-            logp = self.tgp.logp(index=self.index_batch)
-            logp_nan = torch.isfinite(logp)
-            loss = -logp[logp_nan].sum()
-            self.optimizer.zero_grad(set_to_none=True)
-            loss.backward(retain_graph=True)
-            with no_grad:
-                x = torch.stack([p if p.shape[0] > 1 else p.repeat(self.nparams, p.shape[1])
-                                 for p in self.parameters_list], dim=1)
-                dlogp = torch.stack([p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
-                                     for p in self.parameters_list], dim=1)
-                dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
-
-                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=1, alpha=10, eg2=self.eg2, mcmc=mcmc)
-                for i, p in enumerate([p for p in self.parameters_list]):
-                    p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
-                self.tgp.clamp_grad()
-                # self.optimizer.step()
-                self.tgp.clamp()
-        self.optimizer.__init__(self.parameters_list, lr=self.optimizer.param_groups[0]['lr'])
-
         for t in bar:
             logp = self.tgp.logp(index=self.index_batch)
             logp_nan = torch.isfinite(logp)
@@ -162,14 +116,11 @@ class TgLearning:
                 dlogp = torch.stack([p.grad.data if p.shape[0] > 1 else p.grad.data.repeat(self.nparams, p.shape[1])
                                      for p in self.parameters_list], dim=1)
                 dlogp = torch.clamp(dlogp, -self.dlogp_clamp, self.dlogp_clamp)
-
-                annealing_svgd = (((t % epoch) + 1) / epoch) ** self.pot if epoch > 0 else 1
-                self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_svgd, alpha=10,
+                self.eg2, d = self.svgd_direction(x, dlogp, sigma=None, annealing=1, alpha=1,
                                                   eg2=self.eg2, mcmc=mcmc)
+                self.tgp.clamp_grad()
                 for i, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, i] if p.shape[0] > 1 else d.data[:, i].mean(dim=0, keepdim=True))
-                self.tgp.clamp_grad()
-                # self.optimizer.step()
                 self.tgp.clamp()
             self.append()
             if t % update_loss == 0:
@@ -317,6 +268,7 @@ class TgLearning:
 
         :return: a torch.tensor, the kernel Stein direction-
         """
+        sigma = 1
         n_samples = params.shape[0]
         d = (params[:, None, :] - params[None, :, :]) / sigma
 

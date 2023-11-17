@@ -12,15 +12,19 @@ from scipy.stats import gaussian_kde
 
 
 class TgPrior(nn.Module):
-    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
+    def __init__(self, name, dim=1):
         super(TgPrior, self).__init__()
         self.name = name
-        self.parameters = parameters
         self.dim = dim
+        self.color = None
+
+class TgPriorUnivariate(TgPrior):
+    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
+        super(TgPriorUnivariate, self).__init__(name, dim=dim)
+        self.parameters = parameters
         self.d = DictObj({p: BetaLocation(low=low, high=high, alpha=alpha, beta=beta, mean=mean, mode=mode)
                           for p in parameters})
-        self.p = nn.ParameterDict({n: nn.Parameter(self.d[n].sample((self.dim,))) for n in parameters})
-        self.color = None
+        self.p = nn.ParameterDict({p: nn.Parameter(self.d[p].sample((self.dim,))) for p in parameters})
 
     def forward(self, *args, **kwargs):
         return torch.stack(tuple(self.p.values()), dim=1)
@@ -138,6 +142,73 @@ class TgPrior(nn.Module):
 
         return MSES
 
+class TgPriorBivariate(TgPrior):
+    def __init__(self, name, priors, r, dim=1):
+        super(TgPriorBivariate, self).__init__(name, dim=dim)
+        self.d0 = priors[0].d
+        self.d1 = priors[1].d
+        self.parameters = priors[0].parameters
+        self.r = r
+        x0 = dict()
+        x1 = dict()
+        for p in self.parameters:
+            x0[p] = self.d0[p].sample((self.dim,))
+            x1[p] = self.d1[p].sample((self.dim,))
+        self.p0 = nn.ParameterDict({p: nn.Parameter(x0[p] + self.r * x1[p]) for p in self.parameters})
+        self.p1 = nn.ParameterDict({p: nn.Parameter(x1[p]) for p in self.parameters})
+
+    def forward(self, *args, **kwargs):
+        return torch.stack(tuple(self.p0.values()), dim=1), torch.stack(tuple(self.p1.values()), dim=1)
+
+    def logp(self):
+        return sum(self.d0[p].log_prob(self.p0[p] - self.r * self.p1[p]) for p in self.parameters) + sum(self.d1[p].log_prob(self.p1[p]) for p in self.parameters)
+
+    def clamp(self, tol=1e-6):
+        for n in self.parameters:
+            clamp_nan(self.p1[n].data, self.d1[n].low + tol, self.d1[n].high - tol, nan=True)
+            clamp_nan2(self.p0[n].data, self.d0[n].low + self.p1[n].data * self.r + tol, self.d0[n].high + self.p1[n].data * self.r - tol, nan=True)
+
+
+    def clamp_grad(self, tol=1e-6):
+        for n in self.parameters:
+            t = self.p0[n].grad.data
+            t.masked_fill_(t.ne(t), 0)
+            t = self.p1[n].grad.data
+            t.masked_fill_(t.ne(t), 0)
+
+    def sample_params(self):
+        for n in self.parameters:
+            x0 = self.d0[n].sample((self.dim,))
+            x1 = self.d1[n].sample((self.dim,))
+            self.p0[n].data = x0 + self.r * x1
+            self.p1[n].data = x1
+
+    def plot(self):
+        ncols = 3
+        nrows = 2
+        for g in self.p0.keys():
+            fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+            x0 = to_numpy(self.p0[g].data - self.r * self.p1[g].data)
+            x1 = to_numpy(self.p1[g].data)
+
+            y0 = to_numpy(self.p0[g].data)
+            y1 = to_numpy(self.p1[g].data)
+
+            ax[0,0].set_title('prior0 - ' + g + ' - ' + 'x0')
+            sb.kdeplot(x0, ax=ax[0,0])
+            ax[0,1].set_title('prior1 - ' + g + ' - ' + 'x1')
+            sb.kdeplot(x1, ax=ax[0,1])
+            ax[0,2].set_title('prior01 - ' + g + ' - ' + '(x0,x1)')
+            ax[0,2].scatter(x0, x1, alpha=0.5)
+
+            ax[1,0].set_title('prior0 - ' + g + ' - ' + 'y0')
+            sb.kdeplot(y0, ax=ax[1, 0])
+            ax[1,1].set_title('prior1 - ' + g + ' - ' + 'y1')
+            sb.kdeplot(y1, ax=ax[1, 1])
+            ax[1,2].set_title('prior01 - ' + g + ' - ' + '(y0,y1)')
+            ax[1,2].scatter(y0, y1, alpha=0.5)
+            plt.show()
+
 @torch.jit.script
 def clamp_nan(t, lower: float, upper: float, nan: bool = False):
     """
@@ -158,6 +229,19 @@ def clamp_nan(t, lower: float, upper: float, nan: bool = False):
     else:
         t.clamp_(middle, middle)
 
+@torch.jit.script
+def clamp_nan2(t, lower, upper, nan: bool = False):
+    """
+    Calls the torch.clamp_ function (inplace clamp) with more cases.
+
+    :param t: a torch.Tensor, the tensor to be clamped.
+    :param lower: a float, the lower bound.
+    :param upper: a float, the upper bound.
+    :param nan: a boolean, whether to fill NaN values with (lower + upper)*0.5 or not.
+
+    :return: a clamped torch.Tensor.
+    """
+    t.clamp_(lower, upper)
 
 class BetaLocation(dist.TransformedDistribution):
     """A class used to represent the Beta Distribution used for priors."""
@@ -396,26 +480,5 @@ def logp_beta_location_groups(r: torch.Tensor, value: torch.Tensor, low, scale, 
     value_inv = value.sub(low).div(scale)
     r.add_((torch.log(torch.stack([value_inv, t_one.sub(value_inv)], -1)).mul(concentration_1)).sum(-1).add(
         norm_const).sum((-1, -2)))
-
-
-class TgJointPrior(nn.Module):
-    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
-        super(TgJointPrior, self).__init__()
-        self.name = name
-        self.parameters = parameters
-        self.dim = dim
-        self.d = DictObj({p: BetaLocation(low=low, high=high, alpha=alpha, beta=beta, mean=mean, mode=mode)
-                          for p in parameters})
-        self.p = nn.ParameterDict({n: nn.Parameter(self.d[n].sample((self.dim,))) for n in parameters})
-        self.color = None
-
-    def forward(self, *args, **kwargs):
-        return torch.stack(tuple(self.p.values()), dim=1)
-
-    def logp(self):
-        return sum(self.d[p].log_prob(self.p[p]) for p in self.parameters)
-
-
-
 
 
