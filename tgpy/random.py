@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 
 from .tensor import cholesky, _device, DataTensor
-from .prior import TgPrior
+from .prior import TgPrior, TgPriorMarginal
 from .cdf import NormGaussian
 
 
@@ -156,6 +156,7 @@ class TgRandomField(nn.Module):
         self.obs_y = None
         self.is_iid = False
         self.description = {}
+        self._marginals_dict = None
         self._priors_dict = None
         self._priors_list = None
 
@@ -205,6 +206,12 @@ class TgRandomField(nn.Module):
         return self._priors_dict
 
     @property
+    def marginals(self):
+        if self._marginals_dict is None:
+            self._marginals_dict = {k.name: k for k in self.modules() if isinstance(k, TgPriorMarginal)}
+        return self._marginals_dict
+
+    @property
     def priors_list(self):
         if self._priors_list is None:
             self._priors_list = list(self.priors.values())
@@ -229,6 +236,10 @@ class TgRandomField(nn.Module):
     def plot_priors(self, *args, **kwargs):
         for prior in sorted(self.priors.keys()):
             self.priors[prior].plot(*args, **kwargs)
+
+    def plot_marginals(self, *args, **kwargs):
+        for prior in sorted(self.marginals.keys()):
+            self.marginals[prior].plot(*args, **kwargs)
 
     def l2error(self, *args, **kwargs):
         MSES = []

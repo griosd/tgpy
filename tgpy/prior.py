@@ -142,6 +142,23 @@ class TgPriorUnivariate(TgPrior):
 
         return MSES
 
+class TgPriorMarginal(nn.Module):
+    def __init__(self, name, priors, marginal=0):
+        super(TgPriorMarginal, self).__init__()
+        self.name = name
+        self.color = None
+        self.priors = priors
+        self.marginal = marginal
+
+    def forward(self, *args, **kwargs):
+        if self.marginal == 0:
+            return torch.stack(tuple(self.priors.p0.values()), dim=1)
+        else:
+            return torch.stack(tuple(self.priors.p1.values()), dim=1)
+
+    def plot(self, *args, **kwargs):
+        self.priors.plot_marginal(self.marginal, self.name, *args, **kwargs)
+
 class TgPriorBivariate(TgPrior):
     def __init__(self, name, priors, r, dim=1):
         super(TgPriorBivariate, self).__init__(name, dim=dim)
@@ -157,6 +174,9 @@ class TgPriorBivariate(TgPrior):
         self.p0 = nn.ParameterDict({p: nn.Parameter(x0[p] + self.r * x1[p]) for p in self.parameters})
         self.p1 = nn.ParameterDict({p: nn.Parameter(x1[p]) for p in self.parameters})
 
+    def marginal(self, name, marginal=0):
+        return TgPriorMarginal(name, self, marginal=marginal)
+
     def forward(self, *args, **kwargs):
         return torch.stack(tuple(self.p0.values()), dim=1), torch.stack(tuple(self.p1.values()), dim=1)
 
@@ -167,7 +187,7 @@ class TgPriorBivariate(TgPrior):
         for n in self.parameters:
             clamp_nan(self.p1[n].data, self.d1[n].low + tol, self.d1[n].high - tol, nan=True)
             clamp_nan2(self.p0[n].data, self.d0[n].low + self.p1[n].data * self.r + tol, self.d0[n].high + self.p1[n].data * self.r - tol, nan=True)
-
+            # clamp_nan2(self.p0[n].data, self.d0[n].low, self.d0[n].high)
 
     def clamp_grad(self, tol=1e-6):
         for n in self.parameters:
@@ -208,6 +228,58 @@ class TgPriorBivariate(TgPrior):
             ax[1,2].set_title('prior01 - ' + g + ' - ' + '(y0,y1)')
             ax[1,2].scatter(y0, y1, alpha=0.5)
             plt.show()
+
+    def plot_marginal(self, marginal=0, name=None, nspace = 100, ncols = 2, mean = False, median = False, samples = True, kde = True, color = None, alpha = 0.5,
+        save_as = None, *args, ** kwargs):
+        """
+        Plots the priors of each group of an NgPrior.
+
+        :param nspace: an int, the steps of the x-axis.
+        :param ncols: an int, the number of columns for the plot.
+        :param mean: a boolean, whether to plot the mean of each prior as a vertical line.
+        :param median: a boolean, whether to plot the median of each prior as a vertical line.
+        :param samples: a boolean, whether to scatter-plot samples.
+        :param kde: a boolean, whether to plot the kde of samples.
+        :param color: a string, a color.
+        :param alpha: a float, a value used for blending.
+        :param save_as: a string, if is not None, the plot will be saved in the directory indicated in the parameter.
+        :param args: arguments to pass to BetaLocation.plot.
+        :param kwargs: keyword arguments to pass to BetaLocation.plot.
+        """
+        if color is not None:
+            self.color = color
+        elif self.color is None:
+            self.color = color_next()
+
+        if marginal == 0:
+            d = self.d0
+            p = self.p0
+        else:
+            d = self.d1
+            p = self.p1
+
+        nrows = int(np.ceil(len(d) / ncols))
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+        for i, (g, d) in enumerate(d.items()):
+            axi = ax[i // ncols, i % ncols]
+        axi.set_title(name + ' - ' + g)
+        # noinspection PyArgumentList
+        #ylim = d.plot(nspace=nspace, ax=axi, mean=mean, median=median, alpha=alpha, color=self.color,
+        #return_ylim = True, *args, ** kwargs)
+        if samples:
+            s = to_numpy(p[g].data)
+        #sy = to_numpy(d.log_prob(p[g].data).squeeze().exp())
+        #sy[(sy != sy) | (sy > ylim)] = ylim
+        #if s.size == 1:
+        #    axi.plot([s.item(), s.item()], [0, sy * 0.98], lw=4.0, color=self.color, alpha=1.0)
+        #else:
+        #    axi.scatter(s, np.random.rand(len(s)) * sy, color=self.color, alpha=0.5)
+        if True and s.size > 1 and np.unique(s).size > 1:
+            sb.kdeplot(s, ax=axi, color=self.color, alpha=0.5, fill=True, ls='--')
+
+        if save_as is not None:
+            fig.savefig(save_as, bbox_inches='tight', dpi=300)
+        plt.show()
 
 @torch.jit.script
 def clamp_nan(t, lower: float, upper: float, nan: bool = False):
