@@ -261,8 +261,14 @@ class TgLearning:
         with no_grad:
             sigma = []
             for name, prior in self.priors_dict.items():
-                for n, dist in prior.d.items():
-                    sigma.append(dist.high - dist.low)
+                if hasattr(prior, 'd'):
+                    for n, dist in prior.d.items():
+                        sigma.append(dist.high - dist.low)
+                else:
+                    for n, dist in prior.d0.items():
+                        sigma.append(dist.high - dist.low)
+                    for n, dist in prior.d1.items():
+                        sigma.append(dist.high - dist.low)
             sigma = torch.stack(sigma)
             epoch = int(niters * self.cycle)
         if grassman:
@@ -297,17 +303,17 @@ class TgLearning:
                 if grassman:
                     # Direction of GSVGD
                     self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd,
-                                                      projection=A[0], eg2=self.eg2, momentum=True, mcmc=mcmc,
+                                                      projection=A[0], eg2=self.eg2, mcmc=mcmc,
                                                       grassman=grassman)
                     for k in range(1, A.shape[0]):
                         self.eg2, aux = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd,
-                                                            projection=A[k], eg2=self.eg2, momentum=True, mcmc=mcmc,
+                                                            projection=A[k], eg2=self.eg2, mcmc=mcmc,
                                                             grassman=grassman)
                         d += aux
                 else:
                     # Direction of SVGD
                     self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd, alpha=10,
-                                                      eg2=self.eg2, momentum=True, mcmc=mcmc, grassman=grassman)
+                                                      eg2=self.eg2, mcmc=mcmc, grassman=grassman)
                 for j, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
                 self.tgp.clamp_grad()
