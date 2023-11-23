@@ -325,7 +325,7 @@ class TgLearning:
                         d += aux
                 else:
                     # Direction of SVGD
-                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd, alpha=10,
+                    self.eg2, d = self.svgd_direction(x, dlogp, sigma=sigma, annealing=annealing_gsvgd, alpha=1,
                                                       eg2=self.eg2, mcmc=mcmc, grassman=grassman)
                 for j, p in enumerate([p for p in self.parameters_list]):
                     p.data -= (d.data[:, j] if p.shape[0] > 1 else d.data[:, j].mean(dim=0, keepdim=True))
