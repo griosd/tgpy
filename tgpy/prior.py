@@ -156,6 +156,13 @@ class TgPriorMarginal(nn.Module):
         else:
             return torch.stack(tuple(self.priors.p1.values()), dim=1)
 
+    @property
+    def p(self):
+        if self.marginal == 0:
+            return self.priors.p0
+        else:
+            return self.priors.p1
+
     def plot(self, *args, **kwargs):
         self.priors.plot_marginal(self.marginal, self.name, *args, **kwargs)
 
@@ -186,7 +193,8 @@ class TgPriorBivariate(TgPrior):
     def clamp(self, tol=1e-6):
         for n in self.parameters:
             clamp_nan(self.p1[n].data, self.d1[n].low + tol, self.d1[n].high - tol, nan=True)
-            clamp_nan2(self.p0[n].data, self.d0[n].low + self.p1[n].data * self.r + tol, self.d0[n].high + self.p1[n].data * self.r - tol, nan=True)
+            clamp_nan2(self.p0[n].data, self.d0[n].low + self.p1[n].data * self.r + tol, self.d0[n].high
+                       + self.p1[n].data * self.r - tol, nan=True)
             # clamp_nan2(self.p0[n].data, self.d0[n].low, self.d0[n].high)
 
     def clamp_grad(self, tol=1e-6):
