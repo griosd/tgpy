@@ -84,12 +84,7 @@ class TgLearning:
             self.execute_svgd(niters=int(np.ceil(niters / nreview)), reset=False, mcmc=mcmc, grassman=grassman,
                               grad_method=grad_method, A=self.grassman_A, T=self.T)
 
-            prior_dict = {}
-            for prior in range(nprior):
-                for group in range(ngroup):
-                    prior_dict[('prior{}'.format(prior), 'g{}'.format(group))] = self.priors_dict['prior{}'.format(
-                        prior)].p['g{}'.format(group)].data.clone().detach().cpu().numpy()
-            review_dict['r{}'.format(k)] = prior_dict
+            review_dict = self.tgp.get_priors()
         return review_dict
 
 
