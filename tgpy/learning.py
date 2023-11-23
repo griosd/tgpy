@@ -84,7 +84,7 @@ class TgLearning:
             self.execute_svgd(niters=int(np.ceil(niters / nreview)), reset=False, mcmc=mcmc, grassman=grassman,
                               grad_method=grad_method, A=self.grassman_A, T=self.T)
 
-            review_dict = self.tgp.get_priors()
+            review_dict['r{}'.format(k)] = self.tgp.get_priors()
         return review_dict
 
 
@@ -164,7 +164,6 @@ class TgLearning:
         :param showplot: a bool, if it's true the plot show
         """
         theo = theorical['prior{}'.format(rprior), 'g{}'.format(rgroup)]
-        keys = list(review_dict.keys())
         ks_statistic = []
         # Numpys de datos
         for i, key in enumerate(review_dict.keys()):
