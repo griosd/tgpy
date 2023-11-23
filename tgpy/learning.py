@@ -204,7 +204,17 @@ class TgLearning:
         return ks_statistic
 
 
-    def execute_sgd(self, niters, update_loss=10):
+    def execute_sgd(self, niters, update_loss=10, langevin: bool = False, langevin_add=0.05, langevin_mult=0.01):
+        """
+        Executes the Stochastic Gradient Descent method langevin dynamics .
+
+        :param niters: an int, the number of iterations for the algorithm.
+        :param update_loss: an int, the number of iterations to wait to update the loss value next to the progress bar.
+        :param langevin: a bool, if true, smapling with langevin dynamics.
+        :param langevin_add: a float, the additive langevin noise.
+        :param langevin_mult: a float, the multiplicative langevin noise.
+        """
+
         bar = tqdm(range(niters), ncols=950)
         update_loss -= 1
         end = self.niters + niters
@@ -217,6 +227,9 @@ class TgLearning:
             loss.backward()
             self.tgp.clamp_grad()
             self.optimizer.step()
+            if langevin:
+                for p in self.parameters_list:
+                    p.data = p.data*(1+torch.randn(p.shape, device=p.device)*langevin_mult) + torch.randn(p.shape, device=p.device)*langevin_add
             self.tgp.clamp()
             self.append()
             if t % update_loss == 0:
@@ -231,7 +244,7 @@ class TgLearning:
                      grad_method='stochastic', niter_grad=None, N=None, reset: bool = True,
                      mcmc: bool = True, grassman: bool = True):
         """
-        Executes the selected method .
+        Executes the Stein Variational Gradient Descent method with MCMC and Grassman options .
 
         :param niters: an int, the number of iterations for the algorithm.
         :param delta: a float, step size in Euler-Maruyama discretization of the projection dynamic.
@@ -263,12 +276,12 @@ class TgLearning:
             for name, prior in self.priors_dict.items():
                 if hasattr(prior, 'd'):
                     for n, dist in prior.d.items():
-                        sigma.append(dist.high - dist.low)
+                        sigma.append(dist.high*0+1)
                 else:
                     for n, dist in prior.d0.items():
-                        sigma.append(dist.high - dist.low)
+                        sigma.append(dist.high*0+1)
                     for n, dist in prior.d1.items():
-                        sigma.append(dist.high - dist.low)
+                        sigma.append(dist.high*0+1)
             sigma = torch.stack(sigma)
             epoch = int(niters * self.cycle)
         if grassman:
