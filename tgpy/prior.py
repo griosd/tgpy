@@ -88,8 +88,8 @@ class TgPriorUnivariate(TgPrior):
 
         if save_as is not None:
             fig.savefig(save_as, bbox_inches='tight', dpi=300)
-        plt.show()
-
+        #plt.show()
+        return ax
     def l2error(self, nspace=100, ncols=2, color=None, plot=True):
         """
         Calculate the mean squared error between the prior distribution and the empirical kde distribution

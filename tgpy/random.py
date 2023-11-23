@@ -309,7 +309,11 @@ class TP(TgRandomField):
     def obs_h(self):
         return self.inverse(self.obs_x, self.obs_y, noise=True)
 
-    def prior(self, x, nsamples=1, noise=False):
+    def prior(self, inputs, nsamples=1, noise=False):
+        if len(inputs.shape) == 1:
+            x = self.dt.tensor_inputs(inputs)
+        else:
+            x = self.dt.original_to_tensor_inputs(inputs)
         return self.forward(x, self.generator.prior(x, nsamples=nsamples), noise=noise)
 
     def posterior(self, x, nsamples=1, obs_x=None, obs_y=None, noise=False, noise_cross=False):
