@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 
 from .tensor import cholesky, _device, DataTensor
-from .prior import TgPrior
+from .prior import TgPrior, TgPriorMarginal
 from .cdf import NormGaussian
 
 
@@ -55,7 +55,11 @@ class MarginalTransport(TgTransport):
         return self.forward(x, h, noise=noise)
 
     def logdetgradinv(self, x, y, sy=None):
-        return self.mapping.log_gradient_inverse(x, y).nansum(dim=[1, 2])
+        r = self.mapping.log_gradient_inverse(x, y)
+        if len(r.shape) > 2:
+            return r.nansum(dim=[1,2])
+        else:
+            return r.nansum(dim=[-1])
 
 
 class RadialTransport(TgTransport):
@@ -77,7 +81,6 @@ class RadialTransport(TgTransport):
         pass
 
     def logdetgradinv(self, x, y, sy=None):
-
         return self.radial.log_gradient_inverse(x, y).nansum(dim=[1, 2])
 
 
@@ -153,6 +156,7 @@ class TgRandomField(nn.Module):
         self.obs_y = None
         self.is_iid = False
         self.description = {}
+        self._marginals_dict = None
         self._priors_dict = None
         self._priors_list = None
 
@@ -202,6 +206,12 @@ class TgRandomField(nn.Module):
         return self._priors_dict
 
     @property
+    def marginals(self):
+        if self._marginals_dict is None:
+            self._marginals_dict = {k.name: k for k in self.modules() if isinstance(k, TgPriorMarginal)}
+        return self._marginals_dict
+
+    @property
     def priors_list(self):
         if self._priors_list is None:
             self._priors_list = list(self.priors.values())
@@ -226,6 +236,10 @@ class TgRandomField(nn.Module):
     def plot_priors(self, *args, **kwargs):
         for prior in sorted(self.priors.keys()):
             self.priors[prior].plot(*args, **kwargs)
+
+    def plot_marginals(self, *args, **kwargs):
+        for prior in sorted(self.marginals.keys()):
+            self.marginals[prior].plot(*args, **kwargs)
 
     def l2error(self, *args, **kwargs):
         MSES = []
@@ -287,21 +301,15 @@ class TP(TgRandomField):
 
     def logdetgradinv(self, x, list_obs_y):
         r = self.transport[0].logdetgradinv(x, y=list_obs_y[1], sy=list_obs_y[0])
-        # print(self.transport[0], self.transport[0].logdetgradinv(t, y=list_obs_y[1], sy=list_obs_y[0]))
         for i in range(1, len(self.transport)):
             r += self.transport[i].logdetgradinv(x, y=list_obs_y[i + 1], sy=list_obs_y[i])
-            # print(self.transport[i], self.transport[i].logdetgradinv(t, y=list_obs_y[i+1], sy=list_obs_y[i]))
         return r
 
     @property
     def obs_h(self):
         return self.inverse(self.obs_x, self.obs_y, noise=True)
 
-    def prior(self, inputs, nsamples=1, noise=False):
-        if len(inputs.shape) == 1:
-            x = self.dt.tensor_inputs(inputs)
-        else:
-            x = self.dt.original_to_tensor_inputs(inputs)
+    def prior(self, x, nsamples=1, noise=False):
         return self.forward(x, self.generator.prior(x, nsamples=nsamples), noise=noise)
 
     def posterior(self, x, nsamples=1, obs_x=None, obs_y=None, noise=False, noise_cross=False):
@@ -309,7 +317,7 @@ class TP(TgRandomField):
             obs_x = self.obs_x
         if obs_y is None:
             obs_y = self.obs_y
-        list_obs_y = self.inverse(obs_x, obs_y, return_inv=False, return_list=True, noise=True)
+        list_obs_y = self.inverse(obs_x, obs_y+1e-4, return_inv=False, return_list=True, noise=True)
         hi = self.generator.posterior(x, nsamples=nsamples)
         for i, T in enumerate(self.transport):
             hi = T.posterior(x, hi, obs_x, list_obs_y[i], generator=self.generator, noise=noise,
@@ -329,7 +337,7 @@ class TP(TgRandomField):
                              noise_cross=noise_cross)
         return hi
 
-    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False, ntransport=-1):
+    def sample(self, inputs, nsamples=100, noise=False, noise_cross=False, latent=False, prior=False, ntransport=-1):
         if len(inputs.shape) == 1:
             x = self.dt.tensor_inputs(inputs)
             columns = self.dt.original_inputs(inputs).index
@@ -337,7 +345,9 @@ class TP(TgRandomField):
             x = self.dt.original_to_tensor_inputs(inputs)
             columns = inputs.index
 
-        if latent==True:
+        if prior:
+            samples = self.prior(x, nsamples=nsamples, noise=noise)
+        elif latent:
             N=len(self.transport)
             if ntransport==-1:
                 ntransport=N
@@ -356,7 +366,7 @@ class TP(TgRandomField):
         return samples
 
     def predict(self, inputs, quantiles=0.2, median=True, mean=True, nsamples=100, samples=False, noise=False,
-                noise_cross=False, latent=False, ntransport=-1):
+                noise_cross=False, latent=False, ntransport=-1, prior=False):
         """
         Predicts with the transport process.
 
@@ -376,11 +386,14 @@ class TP(TgRandomField):
             also return the process samples in DataFrame form. 
         """
 
-        if latent==True:
+        if latent:
             _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross,
                                    latent=True, ntransport=ntransport)
+        elif prior:
+            _samples = self.sample(inputs, nsamples=nsamples, noise=noise, prior=prior)
         else:
             _samples = self.sample(inputs, nsamples=nsamples, noise=noise, noise_cross=noise_cross)
+
         if len(inputs.shape) == 1:
             pred = self.dt.original(inputs)
         else:
@@ -430,6 +443,7 @@ class TGP(TP):
                      nsamples=100,
                      noise=False,
                      quantile=0.1,
+                     prior=False,
                      valid_index=None,
                      return_pred=False,
                      return_samples=False,
@@ -471,9 +485,12 @@ class TGP(TP):
         :return: None, if return_pred True, returns the DataFrame with the prediction, if return_samples False
             returns the Dataframe with the Samples, if both are True, returns both DataFrames pred and samples.
         """
-
-        pred, samples = self.predict(self.dt.index, quantiles=quantile, nsamples=nsamples,
-                                    samples=True, noise=noise)
+        if prior:
+            pred, samples = self.predict(self.dt.index, quantiles=quantile, nsamples=nsamples,
+                                       samples=True, noise=noise, prior=True)
+        else:
+            pred, samples = self.predict(self.dt.index, quantiles=quantile, nsamples=nsamples,
+                                        samples=True, noise=noise)
 
         x = pred[self.dt.inputs].to_numpy().squeeze()
         real = pred[self.dt.outputs].to_numpy().squeeze()
@@ -531,7 +548,7 @@ class TGP(TP):
             maxim = max(med_post.max(), real.max())
 
         dif = (maxim - minim)*0.1
-        plt.ylim(minim - dif, maxim + dif)
+        #plt.ylim(minim - dif, maxim + dif)
         plt.title('{0} | MAPE={1:.2f}% | MAE={2:.2f}'.format(title, mape, mae), fontsize = 20)
         plt.tight_layout()
         plt.show()
@@ -543,7 +560,7 @@ class TGP(TP):
         if return_samples == True:
             return samples
 
-    def get_priors(self, npriors: int, ngroups: int):
+    def get_priors(self):
         """
         Save the value of sample in a dict
 
@@ -552,10 +569,17 @@ class TGP(TP):
         :return: a dict, value of sample for each prior and group
         """
         prior_dict = {}
-        for i in range(npriors):
-            for j in range(ngroups):
-                prior_dict[('prior{}'.format(i), 'g{}'.format(j))] = self._priors_dict['prior{}'.format(i)].p[
-                    'g{}'.format(j)].data.clone().detach().cpu().numpy()
+        if list(self.priors.keys())[0] == 'prior01':
+            for prior in list(self.marginals.keys()):
+                for group in list(self.marginals[prior].p.keys()):
+                    prior_dict[(prior, group)] = (self.marginals[prior].p[group].data.clone()
+                                                  .detach().cpu().numpy())
+
+        else:
+            for prior in list(self._priors_dict.keys()):
+                for group in list(self._priors_dict[prior].p.keys()):
+                    prior_dict[(prior, group)] = (self._priors_dict[prior].p[group].data.clone()
+                                                  .detach().cpu().numpy())
         return prior_dict
 def MAPE(tgp, pred, val_index, statistic='Mean'):
 

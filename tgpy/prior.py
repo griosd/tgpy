@@ -12,15 +12,19 @@ from scipy.stats import gaussian_kde
 
 
 class TgPrior(nn.Module):
-    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
+    def __init__(self, name, dim=1):
         super(TgPrior, self).__init__()
         self.name = name
-        self.parameters = parameters
         self.dim = dim
+        self.color = None
+
+class TgPriorUnivariate(TgPrior):
+    def __init__(self, name, parameters, dim=1, low=zero, high=one, alpha=None, beta=None, mean=None, mode=None):
+        super(TgPriorUnivariate, self).__init__(name, dim=dim)
+        self.parameters = parameters
         self.d = DictObj({p: BetaLocation(low=low, high=high, alpha=alpha, beta=beta, mean=mean, mode=mode)
                           for p in parameters})
-        self.p = nn.ParameterDict({n: nn.Parameter(self.d[n].sample((self.dim,))) for n in parameters})
-        self.color = None
+        self.p = nn.ParameterDict({p: nn.Parameter(self.d[p].sample((self.dim,))) for p in parameters})
 
     def forward(self, *args, **kwargs):
         return torch.stack(tuple(self.p.values()), dim=1)
@@ -138,6 +142,153 @@ class TgPrior(nn.Module):
 
         return MSES
 
+class TgPriorMarginal(nn.Module):
+    def __init__(self, name, priors, marginal=0):
+        super(TgPriorMarginal, self).__init__()
+        self.name = name
+        self.color = None
+        self.priors = priors
+        self.marginal = marginal
+
+    def forward(self, *args, **kwargs):
+        if self.marginal == 0:
+            return torch.stack(tuple(self.priors.p0.values()), dim=1)
+        else:
+            return torch.stack(tuple(self.priors.p1.values()), dim=1)
+
+    @property
+    def p(self):
+        if self.marginal == 0:
+            return self.priors.p0
+        else:
+            return self.priors.p1
+
+    def plot(self, *args, **kwargs):
+        self.priors.plot_marginal(self.marginal, self.name, *args, **kwargs)
+
+class TgPriorBivariate(TgPrior):
+    def __init__(self, name, priors, r, dim=1):
+        super(TgPriorBivariate, self).__init__(name, dim=dim)
+        self.d0 = priors[0].d
+        self.d1 = priors[1].d
+        self.parameters = priors[0].parameters
+        self.r = r
+        x0 = dict()
+        x1 = dict()
+        for p in self.parameters:
+            x0[p] = self.d0[p].sample((self.dim,))
+            x1[p] = self.d1[p].sample((self.dim,))
+        self.p0 = nn.ParameterDict({p: nn.Parameter(x0[p] + self.r * x1[p]) for p in self.parameters})
+        self.p1 = nn.ParameterDict({p: nn.Parameter(x1[p]) for p in self.parameters})
+
+    def marginal(self, name, marginal=0):
+        return TgPriorMarginal(name, self, marginal=marginal)
+
+    def forward(self, *args, **kwargs):
+        return torch.stack(tuple(self.p0.values()), dim=1), torch.stack(tuple(self.p1.values()), dim=1)
+
+    def logp(self):
+        return sum(self.d0[p].log_prob(self.p0[p] - self.r * self.p1[p]) for p in self.parameters) + sum(self.d1[p].log_prob(self.p1[p]) for p in self.parameters)
+
+    def clamp(self, tol=1e-6):
+        for n in self.parameters:
+            clamp_nan(self.p1[n].data, self.d1[n].low + tol, self.d1[n].high - tol, nan=True)
+            clamp_nan2(self.p0[n].data, self.d0[n].low + self.p1[n].data * self.r + tol, self.d0[n].high
+                       + self.p1[n].data * self.r - tol, nan=True)
+            # clamp_nan2(self.p0[n].data, self.d0[n].low, self.d0[n].high)
+
+    def clamp_grad(self, tol=1e-6):
+        for n in self.parameters:
+            t = self.p0[n].grad.data
+            t.masked_fill_(t.ne(t), 0)
+            t = self.p1[n].grad.data
+            t.masked_fill_(t.ne(t), 0)
+
+    def sample_params(self):
+        for n in self.parameters:
+            x0 = self.d0[n].sample((self.dim,))
+            x1 = self.d1[n].sample((self.dim,))
+            self.p0[n].data = x0 + self.r * x1
+            self.p1[n].data = x1
+
+    def plot(self):
+        ncols = 3
+        nrows = 2
+        for g in self.p0.keys():
+            fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+            x0 = to_numpy(self.p0[g].data - self.r * self.p1[g].data)
+            x1 = to_numpy(self.p1[g].data)
+
+            y0 = to_numpy(self.p0[g].data)
+            y1 = to_numpy(self.p1[g].data)
+
+            ax[0,0].set_title('prior0 - ' + g + ' - ' + 'x0')
+            sb.kdeplot(x0, ax=ax[0,0])
+            ax[0,1].set_title('prior1 - ' + g + ' - ' + 'x1')
+            sb.kdeplot(x1, ax=ax[0,1])
+            ax[0,2].set_title('prior01 - ' + g + ' - ' + '(x0,x1)')
+            ax[0,2].scatter(x0, x1, alpha=0.5)
+
+            ax[1,0].set_title('prior0 - ' + g + ' - ' + 'y0')
+            sb.kdeplot(y0, ax=ax[1, 0])
+            ax[1,1].set_title('prior1 - ' + g + ' - ' + 'y1')
+            sb.kdeplot(y1, ax=ax[1, 1])
+            ax[1,2].set_title('prior01 - ' + g + ' - ' + '(y0,y1)')
+            ax[1,2].scatter(y0, y1, alpha=0.5)
+            plt.show()
+
+    def plot_marginal(self, marginal=0, name=None, nspace = 100, ncols = 2, mean = False, median = False, samples = True, kde = True, color = None, alpha = 0.5,
+        save_as = None, *args, ** kwargs):
+        """
+        Plots the priors of each group of an NgPrior.
+
+        :param nspace: an int, the steps of the x-axis.
+        :param ncols: an int, the number of columns for the plot.
+        :param mean: a boolean, whether to plot the mean of each prior as a vertical line.
+        :param median: a boolean, whether to plot the median of each prior as a vertical line.
+        :param samples: a boolean, whether to scatter-plot samples.
+        :param kde: a boolean, whether to plot the kde of samples.
+        :param color: a string, a color.
+        :param alpha: a float, a value used for blending.
+        :param save_as: a string, if is not None, the plot will be saved in the directory indicated in the parameter.
+        :param args: arguments to pass to BetaLocation.plot.
+        :param kwargs: keyword arguments to pass to BetaLocation.plot.
+        """
+        if color is not None:
+            self.color = color
+        elif self.color is None:
+            self.color = color_next()
+
+        if marginal == 0:
+            d = self.d0
+            p = self.p0
+        else:
+            d = self.d1
+            p = self.p1
+
+        nrows = int(np.ceil(len(d) / ncols))
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(15, 3 * nrows), squeeze=False)
+        for i, (g, d) in enumerate(d.items()):
+            axi = ax[i // ncols, i % ncols]
+        axi.set_title(name + ' - ' + g)
+        # noinspection PyArgumentList
+        #ylim = d.plot(nspace=nspace, ax=axi, mean=mean, median=median, alpha=alpha, color=self.color,
+        #return_ylim = True, *args, ** kwargs)
+        if samples:
+            s = to_numpy(p[g].data)
+        #sy = to_numpy(d.log_prob(p[g].data).squeeze().exp())
+        #sy[(sy != sy) | (sy > ylim)] = ylim
+        #if s.size == 1:
+        #    axi.plot([s.item(), s.item()], [0, sy * 0.98], lw=4.0, color=self.color, alpha=1.0)
+        #else:
+        #    axi.scatter(s, np.random.rand(len(s)) * sy, color=self.color, alpha=0.5)
+        if True and s.size > 1 and np.unique(s).size > 1:
+            sb.kdeplot(s, ax=axi, color=self.color, alpha=0.5, fill=True, ls='--')
+
+        if save_as is not None:
+            fig.savefig(save_as, bbox_inches='tight', dpi=300)
+        plt.show()
+
 @torch.jit.script
 def clamp_nan(t, lower: float, upper: float, nan: bool = False):
     """
@@ -158,6 +309,19 @@ def clamp_nan(t, lower: float, upper: float, nan: bool = False):
     else:
         t.clamp_(middle, middle)
 
+@torch.jit.script
+def clamp_nan2(t, lower, upper, nan: bool = False):
+    """
+    Calls the torch.clamp_ function (inplace clamp) with more cases.
+
+    :param t: a torch.Tensor, the tensor to be clamped.
+    :param lower: a float, the lower bound.
+    :param upper: a float, the upper bound.
+    :param nan: a boolean, whether to fill NaN values with (lower + upper)*0.5 or not.
+
+    :return: a clamped torch.Tensor.
+    """
+    t.clamp_(lower, upper)
 
 class BetaLocation(dist.TransformedDistribution):
     """A class used to represent the Beta Distribution used for priors."""
@@ -314,7 +478,8 @@ class BetaLocation(dist.TransformedDistribution):
         else:
             return 1.0
 
-    def plot(self, nspace=100, ax=None, mean=True, median=True, name=None, return_ylim=False, *args, **kwargs):
+    def plot(self, nspace=100, ax=None, mean=True, median=True, name=None, return_ylim=False, fill=True,
+             *args, **kwargs):
         """
         Plots the Beta Location distribution.
 
@@ -336,7 +501,10 @@ class BetaLocation(dist.TransformedDistribution):
         density_max = density[np.isfinite(density)].max()
         density[~np.isfinite(density)] = density_max
         space = to_numpy(space)
-        ax.fill_between(to_numpy(space), 0, density, *args, **kwargs)
+        if fill:
+            ax.fill_between(to_numpy(space), 0, density, *args, **kwargs)
+        else:
+            ax.plot(to_numpy(space), density, *args, **kwargs)
         ylim = np.percentile(density, 98)
         density_max = density.max()
         ylim = density_max * 1.02 if density_max / ylim < 1.5 else ylim * 1.02
@@ -349,8 +517,12 @@ class BetaLocation(dist.TransformedDistribution):
         if name:
             ax.annotate(name, xy=(self.low.item(), ylim * 0.85))
         dx_lim = self.scale.item() * 5e-3
-        ax.set_xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
-        ax.set_ylim([0, ylim * 1.1])
+        if ax is plt:
+            ax.xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
+            ax.ylim([0, ylim * 1.1])
+        else:
+            ax.set_xlim([self.low.item() - dx_lim, self.high.item() + dx_lim])
+            ax.set_ylim([0, ylim * 1.1])
         if return_ylim:
             return ylim
 
@@ -388,3 +560,5 @@ def logp_beta_location_groups(r: torch.Tensor, value: torch.Tensor, low, scale, 
     value_inv = value.sub(low).div(scale)
     r.add_((torch.log(torch.stack([value_inv, t_one.sub(value_inv)], -1)).mul(concentration_1)).sum(-1).add(
         norm_const).sum((-1, -2)))
+
+

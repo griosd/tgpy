@@ -1,6 +1,7 @@
+import math
 import torch
 import torch.nn as nn
-from .tensor import one, eps4, two, zero
+from .tensor import one, eps4, two, zero, to_tensor, to_numpy
 
 
 class TgMapping(nn.Module):
@@ -406,3 +407,147 @@ class Affine(TgMapping):
         """
         scale = self.scale(t)[:, None, :]
         return -torch.ones_like(y).mul(scale.log())
+
+
+class Distribution(TgMapping):
+    """
+    This class implements the marginal transport h(t, x) = shift(t) + x * scale(t).
+
+    :param shift: an TgPrior or TgModule, to shift x * scale.
+    :param scale: an TgPrior or TgModule, to scale x.
+    :param args: arguments to be passed to the Marginal class.
+    :param kwargs: keyword arguments to be passed to the Marginal class.
+    """
+    def __init__(self, d, *args, **kwargs):
+        # noinspection PyArgumentList
+        super(Distribution, self).__init__(*args, **kwargs)
+        self.d = d
+
+
+    def forward(self, t, x):
+        """
+        Computes the affine's pushforward h(t, x).
+
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
+
+        :return: a torch.Tensor, the pushforward: shift(t) + x * scale(t).
+        """
+        return to_tensor(self.d.ppf(to_numpy(x)))
+
+    def inverse(self, t, y):
+        """
+        Computes the inverse of h(t, x) with respect to x.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the inverse of h: (y - shift(t)) / scale(t).
+        """
+        return to_tensor(self.d.cdf(to_numpy(y)))
+
+    def log_gradient_inverse(self, t, y):
+        """
+        Computes the logarithm of the gradient (with respect to y) of the inverse of h.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the log-derivative of the inverse: -log(scale(t)).
+        """
+        return to_tensor(self.d.logpdf(to_numpy(y)))
+
+class Beta(TgMapping):
+    """
+    This class implements the marginal transport h(t, x) = shift(t) + x * scale(t).
+
+    :param shift: an TgPrior or TgModule, to shift x * scale.
+    :param scale: an TgPrior or TgModule, to scale x.
+    :param args: arguments to be passed to the Marginal class.
+    :param kwargs: keyword arguments to be passed to the Marginal class.
+    """
+    def __init__(self, a, b, *args, **kwargs):
+        # noinspection PyArgumentList
+        super(Beta, self).__init__(*args, **kwargs)
+
+
+    def forward(self, t, x):
+        """
+        Computes the affine's pushforward h(t, x).
+
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
+
+        :return: a torch.Tensor, the pushforward: shift(t) + x * scale(t).
+        """
+        return self.d.icdf(x)
+
+    def inverse(self, t, y):
+        """
+        Computes the inverse of h(t, x) with respect to x.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the inverse of h: (y - shift(t)) / scale(t).
+        """
+        return self.d.cdf(y)
+
+    def log_gradient_inverse(self, t, y):
+        """
+        Computes the logarithm of the gradient (with respect to y) of the inverse of h.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the log-derivative of the inverse: -log(scale(t)).
+        """
+        return self.d.log_prob(y)
+
+class Fi(TgMapping):
+    """
+    This class implements the marginal transport h(t, x) = shift(t) + x * scale(t).
+
+    :param shift: an TgPrior or TgModule, to shift x * scale.
+    :param scale: an TgPrior or TgModule, to scale x.
+    :param args: arguments to be passed to the Marginal class.
+    :param kwargs: keyword arguments to be passed to the Marginal class.
+    """
+    def __init__(self, *args, **kwargs):
+        # noinspection PyArgumentList
+        super(Fi, self).__init__(*args, **kwargs)
+
+
+    def forward(self, t, x):
+        """
+        Computes the affine's pushforward h(t, x).
+
+        :param t: a torch.Tensor, a time instant.
+        :param x: a torch.Tensor, the distribution (empiric samples).
+
+        :return: a torch.Tensor, the pushforward: shift(t) + x * scale(t).
+        """
+        return 0.5 * (1 + torch.special.erf(x/(two ** 0.5)))
+
+    def inverse(self, t, y):
+        """
+        Computes the inverse of h(t, x) with respect to x.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the inverse of h: (y - shift(t)) / scale(t).
+        """
+        return  (two ** 0.5) * torch.special.erfinv(2 * y - 1)
+
+    def log_gradient_inverse(self, t, y):
+        """
+        Computes the logarithm of the gradient (with respect to y) of the inverse of h.
+
+        :param t: a torch.Tensor, a time instant.
+        :param y: a torch.Tensor.
+
+        :return: a torch.Tensor, the log-derivative of the inverse: -log(scale(t)).
+        """
+        inv = self.inverse(t, y)
+        return ( 0.5 * inv ** 2).exp() * (2 * math.pi) ** 0.5

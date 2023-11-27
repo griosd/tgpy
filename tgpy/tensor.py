@@ -52,9 +52,9 @@ class DataTensor:
 
     def calculate_shift(self, inputs=True, outputs=True, stat='min'):
         if inputs:
-            self.shift_inputs = self.original_inputs().apply(stat)
+            self.shift_inputs = self.original_inputs().apply(stat) * 0
         if outputs:
-            self.shift_outputs = self.original_outputs().apply(stat)
+            self.shift_outputs = self.original_outputs().apply(stat) * 0
 
     def calculate_scale(self, inputs=True, outputs=True, quantile=0.9):
         if quantile is False:
@@ -151,7 +151,7 @@ def to_tensor(array, device=None):
     """
     device = _device if device is None else device
     if isinstance(array, np.ndarray) or isinstance(array, list):
-        return torch.Tensor(array, device=device)
+        return torch.Tensor(array).to(device)
     elif isinstance(array, float) or isinstance(array, int):
         return torch.ones(1, device=device) * array
     elif isinstance(array, torch.Tensor):
