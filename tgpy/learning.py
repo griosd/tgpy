@@ -1,10 +1,11 @@
 import torch
 from math import log
 import numpy as np
+import pandas as pd
 import torch.optim as optim
 from tqdm.notebook import tqdm
 from .random import TGP
-from .tensor import _device, cholesky, zero
+from .tensor import _device, cholesky, zero ,to_numpy
 from .kernel import SE
 from .prior import TgPrior
 from .modules import Constant
@@ -196,6 +197,40 @@ class TgLearning:
             plt.ylim([0, 1])
             plt.show()
         return ks_statistic
+
+    def sbc(self, niters_sbc: int = 100, niters_sgd=100):
+        """
+        Returns dataframes of distribution theta0 and theta.
+
+        :param niters_sbc: an int number of extractions of theta_0.
+        :param niters_sgd: an int, number of SGD training iterations.
+
+        """
+        samples_theta_prior = []
+        samples_theta_posterior = []
+        for i in range(niters_sbc):
+            self.tgp.sample_priors()
+            samples_theta_prior.append(pd.DataFrame({
+                k: pd.Series(list(self.priors_dict[k].p.values())[0][0].detach().cpu().numpy())
+                for k in self.priors_dict
+            }))
+
+            self.tgp.dt.output = to_numpy(self.tgp.prior(self.tgp.dt.index)[0, :, 0]).T
+            self.tgp.dt.calculate_scale(inputs=False, outputs=True)
+            self.tgp.obs(self.tgp.dt.index)
+            self.execute_sgd(niters_sgd)  # Train SGD
+
+            samples_theta_posterior.append(pd.DataFrame({
+                k: pd.Series(list(self.priors_dict[k].p.values())[0].detach().cpu().numpy())
+                for k in self.priors_dict
+            }))
+
+        df_prior = pd.concat(samples_theta_prior, ignore_index=True, axis=0)  # Dataframe theta_0
+        df_posterior = pd.concat(samples_theta_posterior, ignore_index=True, axis=0)  # Dataframe theta
+
+        df_prior = df_prior.astype(float)
+
+        return df_prior, df_posterior
 
 
     def execute_sgd(self, niters, update_loss=10, langevin: bool = False, langevin_add=0.05, langevin_mult=0.01):
