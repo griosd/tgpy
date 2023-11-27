@@ -1,10 +1,9 @@
 import math
 import torch
 
-import pandas as pd
+
 import matplotlib.pyplot as plt
 import torch.nn as nn
-from .learning import TgLearning
 from .tensor import cholesky, _device, DataTensor, to_numpy
 from .prior import TgPrior, TgPriorMarginal
 from .cdf import NormGaussian
@@ -441,6 +440,7 @@ class TGP(TP):
     def __init__(self, transport, *args, **kwargs):
         super(TGP, self).__init__(generator=GWNP(), transport=transport, *args, **kwargs)
 
+
     def plot_predict(self,
                      title='GP',
                      x_label='$x$',
@@ -587,41 +587,7 @@ class TGP(TP):
                                                   .detach().cpu().numpy())
         return prior_dict
 
-    def sbc(self, niters_sbc=100, niters_sgd=100):
-        """
-        Returns dataframes of distribution theta_0 and theta_*.
 
-        :param niters_sbc: an int number of extractions of theta_0.
-        :param niters_sgd: an int, number of SGD training iterations.
-
-        """
-
-        samples_theta_prior = []
-        samples_theta_posterior = []
-        for i in range(niters_sbc):
-            self.sample_priors()
-            samples_theta_prior.append(pd.DataFrame({
-                k: pd.Series(list(self.priors[k].p.values())[0][0].detach().cpu().numpy())
-                for k in self.priors
-            }))
-            self.dt.output = to_numpy(self.prior(self.dt.index)[0, :, 0]).T
-            self.dt.calculate_scale(inputs=False, outputs=True)
-            self.obs(self.dt.index)
-
-            learning = TgLearning(self, lr=0.01, pbatch=0.8)
-            learning.execute_sgd(niters_sgd)  # Train SGD
-
-            samples_theta_posterior.append(pd.DataFrame({
-                k: pd.Series(list(self.priors[k].p.values())[0].detach().cpu().numpy())
-                for k in self.priors
-            }))
-
-        df_prior = pd.concat(samples_theta_prior, ignore_index=True, axis=0)  # Dataframe theta_0
-        df_posterior = pd.concat(samples_theta_posterior, ignore_index=True, axis=0)  # Dataframe theta_*
-
-        df_prior = df_prior.astype(float)
-
-        return df_prior, df_posterior
 def MAPE(tgp, pred, val_index, statistic='Mean'):
 
     """
