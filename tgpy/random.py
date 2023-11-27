@@ -565,7 +565,7 @@ class TGP(TP):
         if return_samples == True:
             return samples
 
-    def get_priors(self, npriors: int, ngroups: int):
+    def get_priors(self):
         """
         Save the value of sample in a dict
 
@@ -574,10 +574,17 @@ class TGP(TP):
         :return: a dict, value of sample for each prior and group
         """
         prior_dict = {}
-        for i in range(npriors):
-            for j in range(ngroups):
-                prior_dict[('prior{}'.format(i), 'g{}'.format(j))] = self._priors_dict['prior{}'.format(i)].p[
-                    'g{}'.format(j)].data.clone().detach().cpu().numpy()
+        if list(self.priors.keys())[0] == 'prior01':
+            for prior in list(self.marginals.keys()):
+                for group in list(self.marginals[prior].p.keys()):
+                    prior_dict[(prior, group)] = (self.marginals[prior].p[group].data.clone()
+                                                  .detach().cpu().numpy())
+
+        else:
+            for prior in list(self._priors_dict.keys()):
+                for group in list(self._priors_dict[prior].p.keys()):
+                    prior_dict[(prior, group)] = (self._priors_dict[prior].p[group].data.clone()
+                                                  .detach().cpu().numpy())
         return prior_dict
 
     def sbc(self, niters_sbc=100, niters_sgd=100):
