@@ -208,18 +208,25 @@ class TgLearning:
         """
         samples_theta_prior = []
         samples_theta_posterior = []
+
+        # iteraciones de entrenamiento
         for i in range(niters_sbc):
+
+            # sample del primer hiperparametro theta_0 del prior
             self.tgp.sample_priors()
             samples_theta_prior.append(pd.DataFrame({
                 k: pd.Series(list(self.priors_dict[k].p.values())[0][0].detach().cpu().numpy())
                 for k in self.priors_dict
             }))
-
+            # sample de la primera predicción y del modelo  asociada al primer hiperparametro del prior
             self.tgp.dt.output = to_numpy(self.tgp.prior(self.tgp.dt.index)[0, :, 0]).T
+
+            # el modelo se carga y como output  para luego entrenarse
             self.tgp.dt.calculate_scale(inputs=False, outputs=True)
             self.tgp.obs(self.tgp.dt.index)
-            self.execute_sgd(niters_sgd)  # Train SGD
+            self.execute_sgd(niters_sgd)
 
+            # sample de la posterior theta
             samples_theta_posterior.append(pd.DataFrame({
                 k: pd.Series(list(self.priors_dict[k].p.values())[0].detach().cpu().numpy())
                 for k in self.priors_dict
